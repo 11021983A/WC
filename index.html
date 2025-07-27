@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Заявка на обслуживание</title>
+    <style>
+        /* Простые стили для читаемости */
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 400px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+
+        .room-info {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 5px;
+            text-align: center;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+
+        .problem-list {
+            margin: 20px 0;
+        }
+
+        .problem-item {
+            margin: 10px 0;
+            padding: 15px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .problem-item:hover {
+            border-color: #2196F3;
+            background-color: #f8f9ff;
+        }
+
+        .problem-item.selected {
+            border-color: #2196F3;
+            background-color: #e3f2fd;
+        }
+
+        .problem-item input {
+            margin-right: 10px;
+        }
+
+        .custom-text {
+            width: 100%;
+            padding: 10px;
+            margin-top: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            display: none;
+        }
+
+        .submit-btn {
+            width: 100%;
+            padding: 15px;
+            background: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-top: 20px;
+        }
+
+        .submit-btn:hover {
+            background: #1976D2;
+        }
+
+        .message {
+            display: none;
+            padding: 15px;
+            margin-top: 20px;
+            border-radius: 5px;
+            text-align: center;
+        }
+
+        .success {
+            background: #c8e6c9;
+            color: #2e7d32;
+        }
+
+        .error {
+            background: #ffcdd2;
+            color: #c62828;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 Заявка на обслуживание</h1>
+        
+        <!-- Информация о помещении -->
+        <div class="room-info" id="roomInfo">
+            Помещение: Корпус A, 2 этаж, Туалет №001
+        </div>
+
+        <form id="requestForm">
+            <div class="problem-list">
+                <div class="problem-item" onclick="selectProblem(this, 'soap')">
+                    <input type="radio" name="problem" value="soap" id="soap">
+                    <label for="soap">🧼 Закончилось мыло</label>
+                </div>
+
+                <div class="problem-item" onclick="selectProblem(this, 'paper')">
+                    <input type="radio" name="problem" value="paper" id="paper">
+                    <label for="paper">🧻 Закончились бумажные принадлежности</label>
+                </div>
+
+                <div class="problem-item" onclick="selectProblem(this, 'trash')">
+                    <input type="radio" name="problem" value="trash" id="trash">
+                    <label for="trash">🗑️ Вынести мусор</label>
+                </div>
+
+                <div class="problem-item" onclick="selectProblem(this, 'cleaning')">
+                    <input type="radio" name="problem" value="cleaning" id="cleaning">
+                    <label for="cleaning">🧽 Прибраться</label>
+                </div>
+
+                <div class="problem-item" onclick="selectProblem(this, 'other')">
+                    <input type="radio" name="problem" value="other" id="other">
+                    <label for="other">📝 Другая проблема</label>
+                </div>
+
+                <!-- Поле для ввода своего текста -->
+                <textarea 
+                    id="customText" 
+                    class="custom-text" 
+                    placeholder="Опишите проблему..."
+                    rows="3"
+                ></textarea>
+            </div>
+
+            <button type="submit" class="submit-btn">Отправить заявку</button>
+        </form>
+
+        <!-- Сообщения -->
+        <div id="successMessage" class="message success">
+            ✅ Заявка отправлена! Инженеры получили уведомление.
+        </div>
+
+        <div id="errorMessage" class="message error">
+            ❌ Ошибка отправки. Попробуйте еще раз.
+        </div>
+    </div>
+
+    <script>
+        // ============ ПРОСТАЯ ЛОГИКА ============
+
+        // Глобальная переменная для данных помещения
+        let roomData = {
+            building: 'A',
+            floor: '02', 
+            type: 'WC',
+            number: '001',
+            name: 'Туалет'
+        };
+
+        // При загрузке страницы
+        document.addEventListener('DOMContentLoaded', function() {
+            // Читаем параметры из URL (позже добавим QR-коды)
+            loadRoomFromURL();
+            updateRoomDisplay();
+        });
+
+        /**
+         * Загружает данные помещения из URL параметров
+         * Пример URL: index.html?building=A&floor=02&type=WC&number=001
+         */
+        function loadRoomFromURL() {
+            const params = new URLSearchParams(window.location.search);
+            
+            // Получаем параметры из URL
+            if (params.get('building')) {
+                roomData.building = params.get('building');
+            }
+            if (params.get('floor')) {
+                roomData.floor = params.get('floor');
+            }
+            if (params.get('type')) {
+                roomData.type = params.get('type');
+            }
+            if (params.get('number')) {
+                roomData.number = params.get('number');
+            }
+
+            // Определяем название помещения по типу
+            const roomNames = {
+                'WC': 'Туалет',
+                'KITCHEN': 'Кухня',
+                'OFFICE': 'Офис',
+                'MEETING': 'Переговорная',
+                'STORAGE': 'Склад'
+            };
+            
+            roomData.name = roomNames[roomData.type] || 'Помещение';
+        }
+
+        /**
+         * Обновляет отображение информации о помещении
+         */
+        function updateRoomDisplay() {
+            const roomInfo = document.getElementById('roomInfo');
+            roomInfo.textContent = `${roomData.name}: Корпус ${roomData.building}, ${roomData.floor} этаж, №${roomData.number}`;
+        }
+
+        /**
+         * Выбор проблемы
+         */
+        function selectProblem(element, problemType) {
+            // Убираем выделение со всех элементов
+            document.querySelectorAll('.problem-item').forEach(item => {
+                item.classList.remove('selected');
+            });
+
+            // Выделяем текущий элемент
+            element.classList.add('selected');
+
+            // Отмечаем радио-кнопку
+            const radio = element.querySelector('input');
+            radio.checked = true;
+
+            // Показываем поле для текста, если выбрано "Другая проблема"
+            const customText = document.getElementById('customText');
+            if (problemType === 'other') {
+                customText.style.display = 'block';
+                customText.focus();
+            } else {
+                customText.style.display = 'none';
+                customText.value = '';
+            }
+        }
+
+        /**
+         * Отправка формы
+         */
+        document.getElementById('requestForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            // Проверяем, что выбрана проблема
+            const selectedProblem = document.querySelector('input[name="problem"]:checked');
+            if (!selectedProblem) {
+                alert('Пожалуйста, выберите проблему');
+                return;
+            }
+
+            // Получаем описание проблемы
+            let problemDescription = '';
+            if (selectedProblem.value === 'other') {
+                const customText = document.getElementById('customText').value.trim();
+                if (!customText) {
+                    alert('Пожалуйста, опишите проблему');
+                    return;
+                }
+                problemDescription = 'Другая проблема: ' + customText;
+            } else {
+                // Берем текст из label
+                const problemLabels = {
+                    'soap': 'Закончилось мыло',
+                    'paper': 'Закончились бумажные принадлежности',
+                    'trash': 'Вынести мусор',
+                    'cleaning': 'Прибраться'
+                };
+                problemDescription = problemLabels[selectedProblem.value];
+            }
+
+            // Собираем все данные заявки
+            const requestData = {
+                // Данные помещения
+                roomId: `${roomData.building}-${roomData.floor}-${roomData.type}-${roomData.number}`,
+                building: roomData.building,
+                floor: roomData.floor,
+                roomType: roomData.type,
+                roomNumber: roomData.number,
+                roomName: roomData.name,
+
+                // Данные проблемы
+                problemType: selectedProblem.value,
+                problemDescription: problemDescription,
+
+                // Время
+                date: new Date().toLocaleDateString('ru-RU'),
+                time: new Date().toLocaleTimeString('ru-RU'),
+                timestamp: new Date().toISOString()
+            };
+
+            // Пока просто показываем данные в консоли
+            console.log('Данные заявки:', requestData);
+            
+            // Имитируем отправку
+            sendRequest(requestData);
+        });
+
+        /**
+         * Имитация отправки заявки (пока без реального backend)
+         */
+        function sendRequest(data) {
+            // Показываем, что отправляем
+            const submitBtn = document.querySelector('.submit-btn');
+            submitBtn.textContent = 'Отправляем...';
+            submitBtn.disabled = true;
+
+            // Имитируем задержку сети
+            setTimeout(function() {
+                // В 90% случаев "успех"
+                if (Math.random() > 0.1) {
+                    showSuccess();
+                } else {
+                    showError();
+                }
+
+                // Возвращаем кнопку в нормальное состояние
+                submitBtn.textContent = 'Отправить заявку';
+                submitBtn.disabled = false;
+            }, 1500);
+        }
+
+        /**
+         * Показать сообщение об успехе
+         */
+        function showSuccess() {
+            const successMsg = document.getElementById('successMessage');
+            const errorMsg = document.getElementById('errorMessage');
+            
+            successMsg.style.display = 'block';
+            errorMsg.style.display = 'none';
+
+            // Сбрасываем форму через 3 секунды
+            setTimeout(function() {
+                resetForm();
+                successMsg.style.display = 'none';
+            }, 3000);
+        }
+
+        /**
+         * Показать сообщение об ошибке
+         */
+        function showError() {
+            const successMsg = document.getElementById('successMessage');
+            const errorMsg = document.getElementById('errorMessage');
+            
+            errorMsg.style.display = 'block';
+            successMsg.style.display = 'none';
+
+            // Скрываем ошибку через 3 секунды
+            setTimeout(function() {
+                errorMsg.style.display = 'none';
+            }, 3000);
+        }
+
+        /**
+         * Сброс формы
+         */
+        function resetForm() {
+            // Убираем выделение
+            document.querySelectorAll('.problem-item').forEach(item => {
+                item.classList.remove('selected');
+            });
+
+            // Сбрасываем радио-кнопки
+            document.querySelectorAll('input[name="problem"]').forEach(radio => {
+                radio.checked = false;
+            });
+
+            // Скрываем и очищаем поле для текста
+            const customText = document.getElementById('customText');
+            customText.style.display = 'none';
+            customText.value = '';
+        }
+
+        // ============ ТЕСТИРОВАНИЕ ============
+        
+        /**
+         * Функция для тестирования разных помещений
+         * Вызовите в консоли браузера: testRoom('B', '03', 'KITCHEN', '001')
+         */
+        function testRoom(building, floor, type, number) {
+            roomData.building = building;
+            roomData.floor = floor;
+            roomData.type = type;
+            roomData.number = number;
+            
+            const roomNames = {
+                'WC': 'Туалет',
+                'KITCHEN': 'Кухня', 
+                'OFFICE': 'Офис',
+                'MEETING': 'Переговорная',
+                'STORAGE': 'Склад'
+            };
+            
+            roomData.name = roomNames[type] || 'Помещение';
+            updateRoomDisplay();
+            
+            console.log('Тестируем помещение:', roomData);
+        }
+    </script>
+</body>
+</html>
