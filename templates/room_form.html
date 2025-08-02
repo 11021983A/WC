@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Заявка на обслуживание - Помещение №{{ room.number }}</title>
+    <style>
+        /* Современный дизайн */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            max-width: 500px;
+            width: 100%;
+            animation: slideUp 0.6s ease-out;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 28px;
+            font-weight: 700;
+        }
+
+        .room-info {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 20px;
+            border-radius: 15px;
+            text-align: center;
+            margin-bottom: 30px;
+            font-weight: 600;
+            font-size: 18px;
+        }
+
+        .room-details {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
+            margin-top: 15px;
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .room-detail {
+            background: rgba(255,255,255,0.2);
+            padding: 8px 12px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .problem-list {
+            margin: 30px 0;
+        }
+
+        .problem-item {
+            margin: 15px 0;
+            padding: 20px;
+            border: 2px solid #e0e0e0;
+            border-radius: 15px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .problem-item:hover {
+            border-color: #667eea;
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+        }
+
+        .problem-item.selected {
+            border-color: #667eea;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            transform: scale(1.02);
+        }
+
+        .problem-item input[type="radio"] {
+            display: none;
+        }
+
+        .problem-item label {
+            display: flex;
+            align-items: center;
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            width: 100%;
+        }
+
+        .problem-item label::before {
+            content: '';
+            width: 20px;
+            height: 20px;
+            border: 2px solid #ccc;
+            border-radius: 50%;
+            margin-right: 15px;
+            transition: all 0.3s;
+        }
+
+        .problem-item.selected label::before {
+            background: white;
+            border-color: white;
+            box-shadow: inset 0 0 0 4px #667eea;
+        }
+
+        .custom-text {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 16px;
+            font-family: inherit;
+            resize: vertical;
+            margin-top: 15px;
+            display: none;
+            transition: all 0.3s;
+        }
+
+        .custom-text:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .submit-btn {
+            width: 100%;
+            padding: 18px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            border-radius: 15px;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 20px;
+        }
+
+        .submit-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4);
+        }
+
+        .submit-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .message {
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 20px;
+            display: none;
+            text-align: center;
+            font-weight: 500;
+        }
+
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 10px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 480px) {
+            .container {
+                padding: 30px 20px;
+                margin: 10px;
+            }
+            
+            h1 {
+                font-size: 24px;
+            }
+            
+            .room-info {
+                font-size: 16px;
+                padding: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 Заявка на обслуживание</h1>
+        
+        <!-- Информация о помещении -->
+        <div class="room-info">
+            <div>{{ room.name }} №{{ room.number }}</div>
+            <div class="room-details">
+                <div class="room-detail">Корпус {{ room.building }}</div>
+                <div class="room-detail">{{ room.floor }} этаж</div>
+                <div class="room-detail">{{ room.type }}</div>
+            </div>
+        </div>
+
+        <form id="requestForm">
+            <div class="problem-list">
+                {% for key, value in problem_types.items() %}
+                <div class="problem-item" onclick="selectProblem(this, '{{ key }}')">
+                    <input type="radio" name="problem" value="{{ key }}" id="{{ key }}">
+                    <label for="{{ key }}">{{ value }}</label>
+                </div>
+                {% endfor %}
+
+                <!-- Поле для ввода своего текста -->
+                <textarea 
+                    id="customText" 
+                    class="custom-text" 
+                    placeholder="Опишите проблему подробнее..."
+                    rows="4"
+                ></textarea>
+            </div>
+
+            <button type="submit" class="submit-btn">Отправить заявку</button>
+        </form>
+
+        <!-- Сообщения -->
+        <div id="successMessage" class="message success">
+            ✅ Заявка отправлена! Инженеры получили уведомление.
+        </div>
+
+        <div id="errorMessage" class="message error">
+            ❌ Ошибка отправки. Попробуйте еще раз.
+        </div>
+    </div>
+
+    <script>
+        // Данные помещения из Flask
+        const roomData = {
+            building: '{{ room.building }}',
+            floor: '{{ room.floor }}',
+            type: '{{ room.type }}',
+            number: '{{ room.number }}',
+            name: '{{ room.name }}'
+        };
+
+        // Выбор проблемы
+        function selectProblem(element, problemType) {
+            // Убираем выделение с других элементов
+            document.querySelectorAll('.problem-item').forEach(item => {
+                item.classList.remove('selected');
+            });
+
+            // Выделяем текущий элемент
+            element.classList.add('selected');
+            
+            // Отмечаем радио-кнопку
+            const radio = element.querySelector('input[type="radio"]');
+            radio.checked = true;
+
+            // Показываем/скрываем поле для ввода текста
+            const customText = document.getElementById('customText');
+            if (problemType === 'other') {
+                customText.style.display = 'block';
+                customText.focus();
+            } else {
+                customText.style.display = 'none';
+                customText.value = '';
+            }
+        }
+
+        // Обработка отправки формы
+        document.getElementById('requestForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            // Получаем выбранную проблему
+            const selectedProblem = document.querySelector('input[name="problem"]:checked');
+            if (!selectedProblem) {
+                showError('Пожалуйста, выберите тип проблемы');
+                return;
+            }
+
+            // Получаем описание
+            const customText = document.getElementById('customText');
+            let description = '';
+            if (selectedProblem.value === 'other') {
+                description = customText.value.trim();
+                if (!description) {
+                    showError('Пожалуйста, опишите проблему');
+                    customText.focus();
+                    return;
+                }
+            } else {
+                description = customText.value.trim();
+            }
+
+            // Подготавливаем данные для отправки
+            const requestData = {
+                room: roomData,
+                problem_type: selectedProblem.value,
+                description: description
+            };
+
+            // Отправляем заявку
+            sendRequest(requestData);
+        });
+
+        // Отправка заявки на сервер
+        function sendRequest(data) {
+            const submitBtn = document.querySelector('.submit-btn');
+            const originalText = submitBtn.textContent;
+            
+            // Показываем состояние загрузки
+            submitBtn.innerHTML = '<span class="loading"></span>Отправляем...';
+            submitBtn.disabled = true;
+
+            // Отправляем POST запрос
+            fetch('/api/submit_request', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(data)
+            })
+            .then(response => response.json())
+            .then(result => {
+                if (result.success) {
+                    showSuccess(result.message);
+                    resetForm();
+                } else {
+                    showError(result.message || 'Ошибка при отправке заявки');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showError('Ошибка соединения. Проверьте интернет и попробуйте снова.');
+            })
+            .finally(() => {
+                // Возвращаем кнопку в нормальное состояние
+                submitBtn.textContent = originalText;
+                submitBtn.disabled = false;
+            });
+        }
+
+        // Показать сообщение об успехе
+        function showSuccess(message) {
+            const successMsg = document.getElementById('successMessage');
+            const errorMsg = document.getElementById('errorMessage');
+            
+            if (message) {
+                successMsg.textContent = '✅ ' + message;
+            }
+            
+            successMsg.style.display = 'block';
+            errorMsg.style.display = 'none';
+
+            // Скрываем сообщение через 5 секунд
+            setTimeout(() => {
+                successMsg.style.display = 'none';
+            }, 5000);
+        }
+
+        // Показать сообщение об ошибке
+        function showError(message) {
+            const successMsg = document.getElementById('successMessage');
+            const errorMsg = document.getElementById('errorMessage');
+            
+            errorMsg.textContent = '❌ ' + message;
+            errorMsg.style.display = 'block';
+            successMsg.style.display = 'none';
+
+            // Скрываем ошибку через 5 секунд
+            setTimeout(() => {
+                errorMsg.style.display = 'none';
+            }, 5000);
+        }
+
+        // Сброс формы
+        function resetForm() {
+            // Убираем выделение
+            document.querySelectorAll('.problem-item').forEach(item => {
+                item.classList.remove('selected');
+            });
+
+            // Сбрасываем радио-кнопки
+            document.querySelectorAll('input[name="problem"]').forEach(radio => {
+                radio.checked = false;
+            });
+
+            // Скрываем и очищаем поле для текста
+            const customText = document.getElementById('customText');
+            customText.style.display = 'none';
+            customText.value = '';
+        }
+    </script>
+</body>
+</html>
