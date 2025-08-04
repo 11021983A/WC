@@ -105,6 +105,16 @@
             background: #ffcdd2;
             color: #c62828;
         }
+
+        .debug {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            font-size: 12px;
+            color: #856404;
+        }
     </style>
 </head>
 <body>
@@ -113,7 +123,14 @@
         
         <!-- Информация о помещении -->
         <div class="room-info" id="roomInfo">
-            Помещение: Корпус FFFA, 2 этаж, Туалет №001
+            Помещение: Загрузка...
+        </div>
+
+        <!-- Отладочная информация (можно убрать позже) -->
+        <div id="debugInfo" class="debug" style="display: none;">
+            <strong>Отладка:</strong><br>
+            URL: <span id="debugUrl"></span><br>
+            Параметр room: <span id="debugRoom"></span>
         </div>
 
         <form id="requestForm">
@@ -166,55 +183,95 @@
     </div>
 
     <script>
-        // ============ ПРОСТАЯ ЛОГИКА ============
+        // ============ ОБНОВЛЕННАЯ ЛОГИКА ДЛЯ QR-КОДОВ ============
 
         // Глобальная переменная для данных помещения
         let roomData = {
-            building: 'СВВ',
-            floor: '02', 
-            type: 'WC',
-            number: '001',
-            name: 'Туалет'
+            id: 'unknown',           // ID помещения из QR-кода
+            displayName: 'Помещение', // Название для отображения
+            building: 'Корпус A',    // Корпус по умолчанию
+            floor: '1 этаж',         // Этаж по умолчанию
+            number: '001'            // Номер по умолчанию
         };
 
         // При загрузке страницы
         document.addEventListener('DOMContentLoaded', function() {
-            // Читаем параметры из URL (позже добавим QR-коды)
-            loadRoomFromURL();
+            // Читаем параметр room из URL (который создают QR-коды)
+            loadRoomFromQR();
             updateRoomDisplay();
+            showDebugInfo(); // Для отладки - можно убрать позже
         });
 
         /**
-         * Загружает данные помещения из URL параметров
-         * Пример URL: index.html?building=A&floor=02&type=WC&number=001
+         * НОВАЯ ФУНКЦИЯ: Загружает данные помещения из QR-кода
+         * Ожидает URL вида: https://11021983a.github.io/WC/?room=kitchen
          */
-        function loadRoomFromURL() {
+        function loadRoomFromQR() {
             const params = new URLSearchParams(window.location.search);
+            const roomParam = params.get('room'); // Получаем параметр room
             
-            // Получаем параметры из URL
-            if (params.get('building')) {
-                roomData.building = params.get('building');
-            }
-            if (params.get('floor')) {
-                roomData.floor = params.get('floor');
-            }
-            if (params.get('type')) {
-                roomData.type = params.get('type');
-            }
-            if (params.get('number')) {
-                roomData.number = params.get('number');
+            console.log('Параметр room из URL:', roomParam);
+
+            // Если параметр не найден, используем значения по умолчанию
+            if (!roomParam) {
+                console.log('QR-код не распознан, используем значения по умолчанию');
+                return;
             }
 
-            // Определяем название помещения по типу
-            const roomNames = {
-                'WC': 'Туалет',
-                'KITCHEN': 'Кухня',
-                'OFFICE': 'Офис',
-                'MEETING': 'Переговорная',
-                'STORAGE': 'Склад'
+            // Сопоставляем английские ID с русскими названиями и данными
+            const roomMapping = {
+                'toilet_male': {
+                    id: 'toilet_male',
+                    displayName: 'Мужской туалет',
+                    building: 'Корпус A',
+                    floor: '2 этаж',
+                    number: '201'
+                },
+                'toilet_female': {
+                    id: 'toilet_female',
+                    displayName: 'Женский туалет',
+                    building: 'Корпус A',
+                    floor: '2 этаж',
+                    number: '202'
+                },
+                'kitchen': {
+                    id: 'kitchen',
+                    displayName: 'Кухня',
+                    building: 'Корпус A',
+                    floor: '1 этаж',
+                    number: '101'
+                },
+                'meeting_room': {
+                    id: 'meeting_room',
+                    displayName: 'Переговорная',
+                    building: 'Корпус B',
+                    floor: '3 этаж',
+                    number: '301'
+                },
+                'storage': {
+                    id: 'storage',
+                    displayName: 'Склад',
+                    building: 'Корпус C',
+                    floor: '1 этаж',
+                    number: '001'
+                }
             };
-            
-            roomData.name = roomNames[roomData.type] || 'Помещение';
+
+            // Ищем соответствие в нашей таблице
+            if (roomMapping[roomParam]) {
+                roomData = roomMapping[roomParam];
+                console.log('Помещение найдено:', roomData);
+            } else {
+                // Если ID не найден, создаем базовые данные
+                roomData = {
+                    id: roomParam,
+                    displayName: `Помещение ${roomParam}`,
+                    building: 'Корпус A',
+                    floor: '1 этаж',  
+                    number: '000'
+                };
+                console.log('Неизвестное помещение, создаем базовые данные:', roomData);
+            }
         }
 
         /**
@@ -222,11 +279,30 @@
          */
         function updateRoomDisplay() {
             const roomInfo = document.getElementById('roomInfo');
-            roomInfo.textContent = `${roomData.name}: Корпус ${roomData.building}, ${roomData.floor} этаж, №${roomData.number}`;
+            roomInfo.textContent = `${roomData.displayName}: ${roomData.building}, ${roomData.floor}, №${roomData.number}`;
         }
 
         /**
-         * Выбор проблемы
+         * ФУНКЦИЯ ДЛЯ ОТЛАДКИ: показывает информацию о URL
+         * Уберите эту функцию после тестирования
+         */
+        function showDebugInfo() {
+            const debugInfo = document.getElementById('debugInfo');
+            const debugUrl = document.getElementById('debugUrl');
+            const debugRoom = document.getElementById('debugRoom');
+            
+            debugUrl.textContent = window.location.href;
+            debugRoom.textContent = new URLSearchParams(window.location.search).get('room') || 'не найден';
+            
+            // Показываем отладку только если есть параметр debug в URL
+            const params = new URLSearchParams(window.location.search);
+            if (params.get('debug') === '1') {
+                debugInfo.style.display = 'block';
+            }
+        }
+
+        /**
+         * Выбор проблемы (без изменений)
          */
         function selectProblem(element, problemType) {
             // Убираем выделение со всех элементов
@@ -253,7 +329,7 @@
         }
 
         /**
-         * Отправка формы
+         * ОБНОВЛЕННАЯ отправка формы - теперь использует данные из QR-кода
          */
         document.getElementById('requestForm').addEventListener('submit', function(e) {
             e.preventDefault();
@@ -285,15 +361,14 @@
                 problemDescription = problemLabels[selectedProblem.value];
             }
 
-            // Собираем все данные заявки
+            // ОБНОВЛЕНО: Собираем все данные заявки с учетом QR-кода
             const requestData = {
-                // Данные помещения
-                roomId: `${roomData.building}-${roomData.floor}-${roomData.type}-${roomData.number}`,
-                building: roomData.building,
-                floor: roomData.floor,
-                roomType: roomData.type,
-                roomNumber: roomData.number,
-                roomName: roomData.name,
+                // Данные помещения из QR-кода
+                roomId: roomData.id,                    // ID из QR-кода (toilet_male, kitchen и т.д.)
+                roomDisplayName: roomData.displayName,  // Русское название
+                building: roomData.building,            // Корпус
+                floor: roomData.floor,                  // Этаж
+                roomNumber: roomData.number,            // Номер помещения
 
                 // Данные проблемы
                 problemType: selectedProblem.value,
@@ -302,10 +377,13 @@
                 // Время
                 date: new Date().toLocaleDateString('ru-RU'),
                 time: new Date().toLocaleTimeString('ru-RU'),
-                timestamp: new Date().toISOString()
+                timestamp: new Date().toISOString(),
+
+                // URL для отладки
+                sourceUrl: window.location.href
             };
 
-            // Пока просто показываем данные в консоли
+            // Выводим данные в консоль для проверки
             console.log('Данные заявки:', requestData);
             
             // Имитируем отправку
@@ -313,7 +391,7 @@
         });
 
         /**
-         * Имитация отправки заявки (пока без реального backend)
+         * Имитация отправки заявки (без изменений)
          */
         function sendRequest(data) {
             // Показываем, что отправляем
@@ -337,7 +415,7 @@
         }
 
         /**
-         * Показать сообщение об успехе
+         * Показать сообщение об успехе (без изменений)
          */
         function showSuccess() {
             const successMsg = document.getElementById('successMessage');
@@ -354,7 +432,7 @@
         }
 
         /**
-         * Показать сообщение об ошибке
+         * Показать сообщение об ошибке (без изменений)
          */
         function showError() {
             const successMsg = document.getElementById('successMessage');
@@ -370,7 +448,7 @@
         }
 
         /**
-         * Сброс формы
+         * Сброс формы (без изменений)
          */
         function resetForm() {
             // Убираем выделение
@@ -389,30 +467,37 @@
             customText.value = '';
         }
 
-        // ============ ТЕСТИРОВАНИЕ ============
+        // ============ ФУНКЦИИ ДЛЯ ТЕСТИРОВАНИЯ ============
         
         /**
          * Функция для тестирования разных помещений
-         * Вызовите в консоли браузера: testRoom('B', '03', 'KITCHEN', '001')
+         * Вызовите в консоли браузера: testQRRoom('kitchen')
          */
-        function testRoom(building, floor, type, number) {
-            roomData.building = building;
-            roomData.floor = floor;
-            roomData.type = type;
-            roomData.number = number;
+        function testQRRoom(roomId) {
+            // Имитируем изменение URL
+            const newUrl = `${window.location.origin}${window.location.pathname}?room=${roomId}`;
+            window.history.pushState({}, '', newUrl);
             
-            const roomNames = {
-                'WC': 'Туалет',
-                'KITCHEN': 'Кухня', 
-                'OFFICE': 'Офис',
-                'MEETING': 'Переговорная',
-                'STORAGE': 'Склад'
-            };
-            
-            roomData.name = roomNames[type] || 'Помещение';
+            // Перезагружаем данные
+            loadRoomFromQR();
             updateRoomDisplay();
+            showDebugInfo();
             
             console.log('Тестируем помещение:', roomData);
+        }
+
+        /**
+         * Показать все доступные помещения
+         */
+        function showAvailableRooms() {
+            console.log('Доступные помещения для QR-кодов:');
+            console.log('- toilet_male (Мужской туалет)');
+            console.log('- toilet_female (Женский туалет)');
+            console.log('- kitchen (Кухня)');
+            console.log('- meeting_room (Переговорная)');
+            console.log('- storage (Склад)');
+            console.log('');
+            console.log('Для тестирования используйте: testQRRoom("kitchen")');
         }
     </script>
 </body>
