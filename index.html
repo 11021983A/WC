@@ -337,27 +337,84 @@
         });
 
         /**
-         * Имитация отправки заявки (без изменений)
+         * НОВАЯ ФУНКЦИЯ: Отправка заявки в Telegram
          */
-        function sendRequest(data) {
+        async function sendToTelegram(requestData) {
+            // ВАЖНО: Замените эти значения на ваши!
+            const BOT_TOKEN = '8103662058:AAEwLBodQgk6oHS2oKbPHRIhxgFqWADaDo4';  // Получите у @BotFather
+            const CHAT_ID = '4928953118';       // ID группы куда отправлять
+
+            // Формируем красивое сообщение
+            const message = `🔧 *НОВАЯ ЗАЯВКА НА ОБСЛУЖИВАНИЕ*
+
+📍 *Помещение:* ${requestData.roomDisplayName}
+
+⚠️ *Проблема:* ${requestData.problemDescription}
+
+🕐 *Время:* ${requestData.date} в ${requestData.time}
+
+#заявка #обслуживание`;
+
+            try {
+                const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
+                
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        chat_id: CHAT_ID,
+                        text: message,
+                        parse_mode: 'Markdown'
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (result.ok) {
+                    console.log('Сообщение отправлено в Telegram!', result);
+                    return { success: true, data: result };
+                } else {
+                    console.error('Ошибка Telegram API:', result);
+                    return { success: false, error: result.description };
+                }
+                
+            } catch (error) {
+                console.error('Ошибка отправки в Telegram:', error);
+                return { success: false, error: error.message };
+            }
+        }
+
+        /**
+         * ОБНОВЛЕННАЯ имитация отправки заявки - теперь с Telegram
+         */
+        async function sendRequest(data) {
             // Показываем, что отправляем
             const submitBtn = document.querySelector('.submit-btn');
             submitBtn.textContent = 'Отправляем...';
             submitBtn.disabled = true;
 
-            // Имитируем задержку сети
-            setTimeout(function() {
-                // В 90% случаев "успех"
-                if (Math.random() > 0.1) {
+            try {
+                // Отправляем в Telegram
+                const telegramResult = await sendToTelegram(data);
+                
+                if (telegramResult.success) {
                     showSuccess();
+                    console.log('✅ Заявка успешно отправлена в Telegram!');
                 } else {
-                    showError();
+                    showError(`Ошибка Telegram: ${telegramResult.error}`);
+                    console.error('❌ Ошибка отправки в Telegram:', telegramResult.error);
                 }
+                
+            } catch (error) {
+                console.error('❌ Общая ошибка:', error);
+                showError('Ошибка сети. Проверьте подключение.');
+            }
 
-                // Возвращаем кнопку в нормальное состояние
-                submitBtn.textContent = 'Отправить заявку';
-                submitBtn.disabled = false;
-            }, 1500);
+            // Возвращаем кнопку в нормальное состояние
+            submitBtn.textContent = 'Отправить заявку';
+            submitBtn.disabled = false;
         }
 
         /**
@@ -378,19 +435,20 @@
         }
 
         /**
-         * Показать сообщение об ошибке (без изменений)
+         * Показать сообщение об ошибке (обновлено для показа деталей)
          */
-        function showError() {
+        function showError(errorText = 'Ошибка отправки. Попробуйте еще раз.') {
             const successMsg = document.getElementById('successMessage');
             const errorMsg = document.getElementById('errorMessage');
             
+            errorMsg.textContent = `❌ ${errorText}`;
             errorMsg.style.display = 'block';
             successMsg.style.display = 'none';
 
-            // Скрываем ошибку через 3 секунды
+            // Скрываем ошибку через 5 секунд
             setTimeout(function() {
                 errorMsg.style.display = 'none';
-            }, 3000);
+            }, 5000);
         }
 
         /**
@@ -413,7 +471,55 @@
             customText.value = '';
         }
 
-        // ============ ФУНКЦИИ ДЛЯ ТЕСТИРОВАНИЯ ============
+        // ============ ФУНКЦИИ ДЛЯ НАСТРОЙКИ TELEGRAM ============
+        
+        /**
+         * Функция для получения Chat ID группы
+         * 1. Добавьте бота в группу
+         * 2. Отправьте любое сообщение в группу
+         * 3. Вызовите эту функцию в консоли: getChatId()
+         */
+        async function getChatId() {
+            const BOT_TOKEN = 'ВАШ_ТОКЕН_БОТА'; // Замените на ваш токен
+            
+            try {
+                const url = `https://api.telegram.org/bot${BOT_TOKEN}/getUpdates`;
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                console.log('Последние сообщения:');
+                data.result.forEach((update, index) => {
+                    if (update.message && update.message.chat) {
+                        console.log(`${index + 1}. Chat ID: ${update.message.chat.id}, Название: "${update.message.chat.title || update.message.chat.first_name}"`);
+                    }
+                });
+                
+                return data;
+            } catch (error) {
+                console.error('Ошибка получения Chat ID:', error);
+            }
+        }
+
+        /**
+         * Функция для тестирования отправки в Telegram
+         */
+        async function testTelegramSend() {
+            const testData = {
+                roomDisplayName: 'ТЕСТ_Туалет_муж_Корпус_А_4_эт',
+                problemDescription: 'Тестовое сообщение из веб-приложения',
+                date: new Date().toLocaleDateString('ru-RU'),
+                time: new Date().toLocaleTimeString('ru-RU')
+            };
+            
+            console.log('Отправляем тестовое сообщение...');
+            const result = await sendToTelegram(testData);
+            
+            if (result.success) {
+                console.log('✅ Тест успешен! Проверьте группу в Telegram');
+            } else {
+                console.log('❌ Тест не прошел:', result.error);
+            }
+        }
         
         /**
          * Функция для тестирования разных помещений
