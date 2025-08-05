@@ -183,15 +183,12 @@
     </div>
 
     <script>
-        // ============ ОБНОВЛЕННАЯ ЛОГИКА ДЛЯ QR-КОДОВ ============
+        // ============ УПРОЩЕННАЯ ЛОГИКА ДЛЯ QR-КОДОВ ============
 
         // Глобальная переменная для данных помещения
         let roomData = {
             id: 'unknown',           // ID помещения из QR-кода
-            displayName: 'Помещение', // Название для отображения
-            building: 'Корпус A',    // Корпус по умолчанию
-            floor: '1 этаж',         // Этаж по умолчанию
-            number: '001'            // Номер по умолчанию
+            displayName: 'Помещение' // Название для отображения (точно как в QR-коде)
         };
 
         // При загрузке страницы
@@ -203,8 +200,8 @@
         });
 
         /**
-         * НОВАЯ ФУНКЦИЯ: Загружает данные помещения из QR-кода
-         * Ожидает URL вида: https://11021983a.github.io/WC/?room=kitchen
+         * УПРОЩЕННАЯ ФУНКЦИЯ: Загружает название помещения из QR-кода
+         * Ожидает URL вида: https://11021983a.github.io/WC/?room=Туалет_муж_Корпус_А_4_эт
          */
         function loadRoomFromQR() {
             const params = new URLSearchParams(window.location.search);
@@ -212,65 +209,16 @@
             
             console.log('Параметр room из URL:', roomParam);
 
-            // Если параметр не найден, используем значения по умолчанию
-            if (!roomParam) {
-                console.log('QR-код не распознан, используем значения по умолчанию');
-                return;
-            }
-
-            // Сопоставляем английские ID с русскими названиями и данными
-            const roomMapping = {
-                'toilet_male': {
-                    id: 'toilet_male',
-                    displayName: 'Мужской туалет',
-                    building: 'Корпус A',
-                    floor: '2 этаж',
-                    number: '201'
-                },
-                'toilet_female': {
-                    id: 'toilet_female',
-                    displayName: 'Женский туалет',
-                    building: 'Корпус A',
-                    floor: '2 этаж',
-                    number: '202'
-                },
-                'kitchen': {
-                    id: 'kitchen',
-                    displayName: 'Кухня',
-                    building: 'Корпус A',
-                    floor: '1 этаж',
-                    number: '101'
-                },
-                'meeting_room': {
-                    id: 'meeting_room',
-                    displayName: 'Переговорная',
-                    building: 'Корпус B',
-                    floor: '3 этаж',
-                    number: '301'
-                },
-                'storage': {
-                    id: 'storage',
-                    displayName: 'Склад',
-                    building: 'Корпус C',
-                    floor: '1 этаж',
-                    number: '001'
-                }
-            };
-
-            // Ищем соответствие в нашей таблице
-            if (roomMapping[roomParam]) {
-                roomData = roomMapping[roomParam];
-                console.log('Помещение найдено:', roomData);
+            // Если параметр найден, используем его как есть
+            if (roomParam) {
+                roomData.id = roomParam;
+                roomData.displayName = roomParam; // Используем точно то же название, что в QR-коде
+                console.log('Помещение из QR-кода:', roomData);
             } else {
-                // Если ID не найден, создаем базовые данные
-                roomData = {
-                    id: roomParam,
-                    displayName: `Помещение ${roomParam}`,
-                    building: 'Корпус A',
-                    floor: '1 этаж',  
-                    number: '000'
-                };
-                console.log('Неизвестное помещение, создаем базовые данные:', roomData);
+                // Если параметр не найден, используем значения по умолчанию
+                roomData.id = 'unknown';
+                roomData.displayName = 'Помещение не определено';
+                console.log('QR-код не распознан, используем значения по умолчанию');
             }
         }
 
@@ -279,7 +227,8 @@
          */
         function updateRoomDisplay() {
             const roomInfo = document.getElementById('roomInfo');
-            roomInfo.textContent = `${roomData.displayName}: ${roomData.building}, ${roomData.floor}, №${roomData.number}`;
+            // Показываем только название из QR-кода, без дополнительной информации
+            roomInfo.textContent = roomData.displayName;
         }
 
         /**
@@ -361,14 +310,11 @@
                 problemDescription = problemLabels[selectedProblem.value];
             }
 
-            // ОБНОВЛЕНО: Собираем все данные заявки с учетом QR-кода
+            // УПРОЩЕНО: Собираем данные заявки только с названием из QR-кода
             const requestData = {
-                // Данные помещения из QR-кода
-                roomId: roomData.id,                    // ID из QR-кода (toilet_male, kitchen и т.д.)
-                roomDisplayName: roomData.displayName,  // Русское название
-                building: roomData.building,            // Корпус
-                floor: roomData.floor,                  // Этаж
-                roomNumber: roomData.number,            // Номер помещения
+                // Данные помещения из QR-кода (только название)
+                roomId: roomData.id,                    // Полное название из QR-кода
+                roomDisplayName: roomData.displayName,  // То же самое название
 
                 // Данные проблемы
                 problemType: selectedProblem.value,
@@ -471,11 +417,11 @@
         
         /**
          * Функция для тестирования разных помещений
-         * Вызовите в консоли браузера: testQRRoom('kitchen')
+         * Вызовите в консоли браузера: testQRRoom('Туалет_муж_Корпус_А_4_эт')
          */
-        function testQRRoom(roomId) {
+        function testQRRoom(roomName) {
             // Имитируем изменение URL
-            const newUrl = `${window.location.origin}${window.location.pathname}?room=${roomId}`;
+            const newUrl = `${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(roomName)}`;
             window.history.pushState({}, '', newUrl);
             
             // Перезагружаем данные
@@ -487,17 +433,15 @@
         }
 
         /**
-         * Показать все доступные помещения
+         * Показать примеры помещений для тестирования
          */
-        function showAvailableRooms() {
-            console.log('Доступные помещения для QR-кодов:');
-            console.log('- toilet_male (Мужской туалет)');
-            console.log('- toilet_female (Женский туалет)');
-            console.log('- kitchen (Кухня)');
-            console.log('- meeting_room (Переговорная)');
-            console.log('- storage (Склад)');
-            console.log('');
-            console.log('Для тестирования используйте: testQRRoom("kitchen")');
+        function showExampleRooms() {
+            console.log('Примеры помещений для тестирования:');
+            console.log('testQRRoom("Туалет_муж_Корпус_А_4_эт")');
+            console.log('testQRRoom("Туалет_жен_Корпус_Б_2_эт")');
+            console.log('testQRRoom("Кухня_Корпус_А_1_эт")');
+            console.log('testQRRoom("Переговорная_301")');
+            console.log('testQRRoom("Склад_подвал")');
         }
     </script>
 </body>
