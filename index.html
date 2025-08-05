@@ -337,21 +337,29 @@
         });
 
         /**
-         * НОВАЯ ФУНКЦИЯ: Отправка заявки в Telegram
+         * АЛЬТЕРНАТИВНАЯ ФУНКЦИЯ: Отправка с HTML разметкой (более надежная)
          */
-        async function sendToTelegram(requestData) {
+        async function sendToTelegramHTML(requestData) {
             // ВАЖНО: Замените эти значения на ваши!
-            const BOT_TOKEN = '8103662058:AAEwLBodQgk6oHS2oKbPHRIhxgFqWADaDo4';  // Получите у @BotFather
-            const CHAT_ID = '-4928953118';       // ID группы куда отправлять
+            const BOT_TOKEN = 'ВАШ_ТОКЕН_БОТА';  // Получите у @BotFather
+            const CHAT_ID = 'ВАШ_CHAT_ID';       // ID группы куда отправлять
 
-            // Формируем красивое сообщение
-            const message = `🔧 *НОВАЯ ЗАЯВКА НА ОБСЛУЖИВАНИЕ*
+            // Экранируем специальные символы для HTML
+            function escapeHtml(text) {
+                return text
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;');
+            }
 
-📍 *Помещение:* ${requestData.roomDisplayName}
+            // Формируем сообщение с HTML разметкой
+            const message = `🔧 <b>НОВАЯ ЗАЯВКА НА ОБСЛУЖИВАНИЕ</b>
 
-⚠️ *Проблема:* ${requestData.problemDescription}
+📍 <b>Помещение:</b> ${escapeHtml(requestData.roomDisplayName)}
 
-🕐 *Время:* ${requestData.date} в ${requestData.time}
+⚠️ <b>Проблема:</b> ${escapeHtml(requestData.problemDescription)}
+
+🕐 <b>Время:</b> ${escapeHtml(requestData.date)} в ${escapeHtml(requestData.time)}
 
 #заявка #обслуживание`;
 
@@ -366,7 +374,53 @@
                     body: JSON.stringify({
                         chat_id: CHAT_ID,
                         text: message,
-                        parse_mode: 'Markdown'
+                        parse_mode: 'HTML'
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (result.ok) {
+                    console.log('Сообщение отправлено в Telegram!', result);
+                    return { success: true, data: result };
+                } else {
+                    console.error('Ошибка Telegram API:', result);
+                    return { success: false, error: result.description };
+                }
+                
+            } catch (error) {
+                console.error('Ошибка отправки в Telegram:', error);
+                return { success: false, error: error.message };
+            }
+        }
+        async function sendToTelegram(requestData) {
+            // ВАЖНО: Замените эти значения на ваши!
+            const BOT_TOKEN = 'ВАШ_ТОКЕН_БОТА';  // Получите у @BotFather
+            const CHAT_ID = 'ВАШ_CHAT_ID';       // ID группы куда отправлять
+
+            // Формируем сообщение БЕЗ Markdown (чтобы избежать ошибок парсинга)
+            const message = `🔧 НОВАЯ ЗАЯВКА НА ОБСЛУЖИВАНИЕ
+
+📍 Помещение: ${requestData.roomDisplayName}
+
+⚠️ Проблема: ${requestData.problemDescription}
+
+🕐 Время: ${requestData.date} в ${requestData.time}
+
+#заявка #обслуживание`;
+
+            try {
+                const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
+                
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        chat_id: CHAT_ID,
+                        text: message
+                        // Убрали parse_mode чтобы избежать ошибок
                     })
                 });
 
@@ -396,8 +450,13 @@
             submitBtn.disabled = true;
 
             try {
-                // Отправляем в Telegram
+                // ВЫБЕРИТЕ ОДИН ИЗ СПОСОБОВ:
+                
+                // Способ 1: Простой текст (рекомендуется)
                 const telegramResult = await sendToTelegram(data);
+                
+                // Способ 2: С HTML разметкой (если нужно жирное выделение)
+                // const telegramResult = await sendToTelegramHTML(data);
                 
                 if (telegramResult.success) {
                     showSuccess();
@@ -512,12 +571,28 @@
             };
             
             console.log('Отправляем тестовое сообщение...');
-            const result = await sendToTelegram(testData);
             
-            if (result.success) {
-                console.log('✅ Тест успешен! Проверьте группу в Telegram');
+            // Тестируем простой текст
+            console.log('Тест 1: Простой текст');
+            const result1 = await sendToTelegram(testData);
+            
+            if (result1.success) {
+                console.log('✅ Тест простого текста успешен!');
             } else {
-                console.log('❌ Тест не прошел:', result.error);
+                console.log('❌ Тест простого текста не прошел:', result1.error);
+            }
+            
+            // Ждем секунду между отправками
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            // Тестируем HTML разметку
+            console.log('Тест 2: HTML разметка');
+            const result2 = await sendToTelegramHTML(testData);
+            
+            if (result2.success) {
+                console.log('✅ Тест HTML разметки успешен!');
+            } else {
+                console.log('❌ Тест HTML разметки не прошел:', result2.error);
             }
         }
         
