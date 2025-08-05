@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Заявка на обслуживание</title>
     <style>
-        /* Простые стили для читаемости */
         body {
             font-family: Arial, sans-serif;
             max-width: 400px;
@@ -88,6 +87,11 @@
             background: #1976D2;
         }
 
+        .submit-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
         .message {
             display: none;
             padding: 15px;
@@ -115,6 +119,62 @@
             font-size: 12px;
             color: #856404;
         }
+
+        .telegram-link {
+            background: #e3f2fd;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+            border: 1px solid #2196F3;
+        }
+
+        .telegram-link a {
+            color: #2196F3;
+            text-decoration: none;
+            font-weight: bold;
+        }
+
+        .telegram-link a:hover {
+            text-decoration: underline;
+        }
+
+        .config-section {
+            background: #fff3cd;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 5px;
+            border: 1px solid #ffeaa7;
+            font-size: 14px;
+        }
+
+        .config-section h3 {
+            margin-top: 0;
+            color: #856404;
+        }
+
+        .config-input {
+            width: 100%;
+            padding: 8px;
+            margin: 5px 0;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+
+        .config-button {
+            background: #28a745;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 12px;
+            margin: 5px 5px 5px 0;
+        }
+
+        .config-button:hover {
+            background: #218838;
+        }
     </style>
 </head>
 <body>
@@ -126,11 +186,28 @@
             Помещение: Загрузка...
         </div>
 
-        <!-- Отладочная информация (можно убрать позже) -->
+        <!-- Конфигурация Telegram (показывается только при необходимости) -->
+        <div id="configSection" class="config-section" style="display: none;">
+            <h3>⚙️ Настройка Telegram</h3>
+            <p>Для отправки уведомлений нужно настроить Telegram бота:</p>
+            
+            <label>Токен бота:</label>
+            <input type="text" id="botToken" class="config-input" placeholder="1234567890:AAAA-BBB-CCC..." />
+            
+            <label>Chat ID группы:</label>
+            <input type="text" id="chatId" class="config-input" placeholder="-1001234567890" />
+            
+            <button class="config-button" onclick="saveTelegramConfig()">💾 Сохранить</button>
+            <button class="config-button" onclick="testConnection()">🔧 Тест</button>
+            <button class="config-button" onclick="showInstructions()">❓ Инструкция</button>
+        </div>
+
+        <!-- Отладочная информация -->
         <div id="debugInfo" class="debug" style="display: none;">
             <strong>Отладка:</strong><br>
             URL: <span id="debugUrl"></span><br>
-            Параметр room: <span id="debugRoom"></span>
+            Параметр room: <span id="debugRoom"></span><br>
+            Telegram настроен: <span id="debugTelegram"></span>
         </div>
 
         <form id="requestForm">
@@ -160,7 +237,6 @@
                     <label for="other">📝 Другая проблема</label>
                 </div>
 
-                <!-- Поле для ввода своего текста -->
                 <textarea 
                     id="customText" 
                     class="custom-text" 
@@ -180,93 +256,233 @@
         <div id="errorMessage" class="message error">
             ❌ Ошибка отправки. Попробуйте еще раз.
         </div>
+
+        <!-- Ссылка для ручной отправки -->
+        <div id="telegramLinkDiv" style="display: none;"></div>
     </div>
 
     <script>
-        // ============ УПРОЩЕННАЯ ЛОГИКА ДЛЯ QR-КОДОВ ============
+        // Конфигурация Telegram
+        let telegramConfig = {
+            botToken: '',
+            chatId: '',
+            isConfigured: false
+        };
 
-        // Глобальная переменная для данных помещения
+        // Данные помещения
         let roomData = {
-            id: 'unknown',           // ID помещения из QR-кода
-            displayName: 'Помещение' // Название для отображения (точно как в QR-коде)
+            id: 'unknown',
+            displayName: 'Помещение'
         };
 
         // При загрузке страницы
         document.addEventListener('DOMContentLoaded', function() {
-            // Читаем параметр room из URL (который создают QR-коды)
+            loadTelegramConfig();
             loadRoomFromQR();
             updateRoomDisplay();
-            showDebugInfo(); // Для отладки - можно убрать позже
+            checkTelegramConfig();
+            showDebugInfo();
         });
 
         /**
-         * УПРОЩЕННАЯ ФУНКЦИЯ: Загружает название помещения из QR-кода
-         * Ожидает URL вида: https://11021983a.github.io/WC/?room=Туалет_муж_Корпус_А_4_эт
+         * Загрузка конфигурации Telegram из localStorage
          */
-        function loadRoomFromQR() {
-            const params = new URLSearchParams(window.location.search);
-            const roomParam = params.get('room'); // Получаем параметр room
-            
-            console.log('Параметр room из URL:', roomParam);
-
-            // Если параметр найден, используем его как есть
-            if (roomParam) {
-                roomData.id = roomParam;
-                roomData.displayName = roomParam; // Используем точно то же название, что в QR-коде
-                console.log('Помещение из QR-кода:', roomData);
-            } else {
-                // Если параметр не найден, используем значения по умолчанию
-                roomData.id = 'unknown';
-                roomData.displayName = 'Помещение не определено';
-                console.log('QR-код не распознан, используем значения по умолчанию');
+        function loadTelegramConfig() {
+            try {
+                const saved = localStorage.getItem('telegramConfig');
+                if (saved) {
+                    telegramConfig = JSON.parse(saved);
+                    telegramConfig.isConfigured = !!(telegramConfig.botToken && telegramConfig.chatId);
+                    
+                    // Заполняем поля в форме
+                    document.getElementById('botToken').value = telegramConfig.botToken || '';
+                    document.getElementById('chatId').value = telegramConfig.chatId || '';
+                }
+            } catch (error) {
+                console.log('Ошибка загрузки конфигурации:', error);
             }
         }
 
         /**
-         * Обновляет отображение информации о помещении
+         * Сохранение конфигурации Telegram
+         */
+        function saveTelegramConfig() {
+            const botToken = document.getElementById('botToken').value.trim();
+            const chatId = document.getElementById('chatId').value.trim();
+
+            if (!botToken || !chatId) {
+                alert('Пожалуйста, заполните все поля');
+                return;
+            }
+
+            telegramConfig = {
+                botToken: botToken,
+                chatId: chatId,
+                isConfigured: true
+            };
+
+            try {
+                localStorage.setItem('telegramConfig', JSON.stringify(telegramConfig));
+                alert('✅ Конфигурация сохранена!');
+                checkTelegramConfig();
+            } catch (error) {
+                alert('❌ Ошибка сохранения: ' + error.message);
+            }
+        }
+
+        /**
+         * Проверка конфигурации и показ/скрытие настроек
+         */
+        function checkTelegramConfig() {
+            const configSection = document.getElementById('configSection');
+            
+            if (!telegramConfig.isConfigured) {
+                configSection.style.display = 'block';
+            } else {
+                // Показываем настройки только если есть параметр config=1 в URL
+                const params = new URLSearchParams(window.location.search);
+                configSection.style.display = params.get('config') === '1' ? 'block' : 'none';
+            }
+        }
+
+        /**
+         * Тестирование соединения с Telegram
+         */
+        async function testConnection() {
+            const botToken = document.getElementById('botToken').value.trim();
+            const chatId = document.getElementById('chatId').value.trim();
+
+            if (!botToken || !chatId) {
+                alert('Сначала заполните токен и Chat ID');
+                return;
+            }
+
+            const testMessage = `🔧 ТЕСТ СОЕДИНЕНИЯ
+
+📍 Помещение: Тестовое помещение
+⚠️ Проблема: Проверка работы бота
+🕐 Время: ${new Date().toLocaleString('ru-RU')}
+
+Если вы видите это сообщение, бот настроен правильно! ✅`;
+
+            try {
+                const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        chat_id: chatId,
+                        text: testMessage
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.ok) {
+                    alert('✅ Тест успешен! Сообщение отправлено в Telegram.');
+                } else {
+                    alert(`❌ Ошибка теста: ${result.description}`);
+                }
+            } catch (error) {
+                alert(`❌ Ошибка соединения: ${error.message}`);
+            }
+        }
+
+        /**
+         * Показ инструкций по настройке
+         */
+        function showInstructions() {
+            const instructions = `
+📋 ИНСТРУКЦИЯ ПО НАСТРОЙКЕ TELEGRAM БОТА:
+
+1️⃣ СОЗДАНИЕ БОТА:
+   • Найдите @BotFather в Telegram
+   • Напишите /newbot
+   • Придумайте имя бота (например: "Заявки Обслуживание")
+   • Придумайте username (например: "service_requests_bot")
+   • Скопируйте ТОКЕН (выглядит как: 1234567890:AAA-BBB-CCC...)
+
+2️⃣ СОЗДАНИЕ ГРУППЫ:
+   • Создайте группу в Telegram
+   • Добавьте бота в группу как администратора
+   • Дайте боту права на отправку сообщений
+
+3️⃣ ПОЛУЧЕНИЕ CHAT ID:
+   • Отправьте любое сообщение в группу
+   • Откройте в браузере: https://api.telegram.org/botВАШ_ТОКЕН/getUpdates
+   • Найдите chat.id вашей группы (начинается с -100...)
+
+4️⃣ НАСТРОЙКА:
+   • Вставьте ТОКЕН в поле "Токен бота"
+   • Вставьте CHAT ID в поле "Chat ID группы"
+   • Нажмите "Сохранить"
+   • Нажмите "Тест" для проверки
+
+❓ Если не работает:
+   • Проверьте, что бот добавлен в группу
+   • Проверьте, что у бота есть права администратора
+   • Проверьте правильность токена и Chat ID
+`;
+
+            alert(instructions);
+        }
+
+        /**
+         * Загрузка данных помещения из QR-кода
+         */
+        function loadRoomFromQR() {
+            const params = new URLSearchParams(window.location.search);
+            const roomParam = params.get('room');
+            
+            if (roomParam) {
+                roomData.id = roomParam;
+                roomData.displayName = roomParam;
+            } else {
+                roomData.id = 'unknown';
+                roomData.displayName = 'Помещение не определено';
+            }
+        }
+
+        /**
+         * Обновление отображения помещения
          */
         function updateRoomDisplay() {
             const roomInfo = document.getElementById('roomInfo');
-            // Показываем только название из QR-кода, без дополнительной информации
             roomInfo.textContent = roomData.displayName;
         }
 
         /**
-         * ФУНКЦИЯ ДЛЯ ОТЛАДКИ: показывает информацию о URL
-         * Уберите эту функцию после тестирования
+         * Отладочная информация
          */
         function showDebugInfo() {
-            const debugInfo = document.getElementById('debugInfo');
-            const debugUrl = document.getElementById('debugUrl');
-            const debugRoom = document.getElementById('debugRoom');
-            
-            debugUrl.textContent = window.location.href;
-            debugRoom.textContent = new URLSearchParams(window.location.search).get('room') || 'не найден';
-            
-            // Показываем отладку только если есть параметр debug в URL
             const params = new URLSearchParams(window.location.search);
             if (params.get('debug') === '1') {
+                const debugInfo = document.getElementById('debugInfo');
+                const debugUrl = document.getElementById('debugUrl');
+                const debugRoom = document.getElementById('debugRoom');
+                const debugTelegram = document.getElementById('debugTelegram');
+                
+                debugUrl.textContent = window.location.href;
+                debugRoom.textContent = params.get('room') || 'не найден';
+                debugTelegram.textContent = telegramConfig.isConfigured ? 'Да' : 'Нет';
+                
                 debugInfo.style.display = 'block';
             }
         }
 
         /**
-         * Выбор проблемы (без изменений)
+         * Выбор проблемы
          */
         function selectProblem(element, problemType) {
-            // Убираем выделение со всех элементов
             document.querySelectorAll('.problem-item').forEach(item => {
                 item.classList.remove('selected');
             });
 
-            // Выделяем текущий элемент
             element.classList.add('selected');
-
-            // Отмечаем радио-кнопку
             const radio = element.querySelector('input');
             radio.checked = true;
 
-            // Показываем поле для текста, если выбрано "Другая проблема"
             const customText = document.getElementById('customText');
             if (problemType === 'other') {
                 customText.style.display = 'block';
@@ -278,19 +494,81 @@
         }
 
         /**
-         * ОБНОВЛЕННАЯ отправка формы - теперь использует данные из QR-кода
+         * Отправка в Telegram
          */
-        document.getElementById('requestForm').addEventListener('submit', function(e) {
+        async function sendToTelegram(requestData) {
+            if (!telegramConfig.isConfigured) {
+                throw new Error('Telegram не настроен');
+            }
+
+            const message = `🔧 НОВАЯ ЗАЯВКА НА ОБСЛУЖИВАНИЕ
+
+📍 Помещение: ${requestData.roomDisplayName}
+
+⚠️ Проблема: ${requestData.problemDescription}
+
+🕐 Время: ${requestData.date} в ${requestData.time}
+
+#заявка #обслуживание`;
+
+            const response = await fetch(`https://api.telegram.org/bot${telegramConfig.botToken}/sendMessage`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    chat_id: telegramConfig.chatId,
+                    text: message
+                })
+            });
+
+            const result = await response.json();
+
+            if (!result.ok) {
+                throw new Error(result.description || 'Ошибка отправки в Telegram');
+            }
+
+            return result;
+        }
+
+        /**
+         * Создание ссылки для ручной отправки
+         */
+        function createTelegramLink(requestData) {
+            const message = `🔧 НОВАЯ ЗАЯВКА НА ОБСЛУЖИВАНИЕ
+
+📍 Помещение: ${requestData.roomDisplayName}
+⚠️ Проблема: ${requestData.problemDescription}
+🕐 Время: ${requestData.date} в ${requestData.time}
+
+#заявка #обслуживание`;
+
+            const telegramLink = `https://t.me/share/url?url=&text=${encodeURIComponent(message)}`;
+            
+            const linkDiv = document.getElementById('telegramLinkDiv');
+            linkDiv.innerHTML = `
+                <div class="telegram-link">
+                    <strong>📱 Ручная отправка:</strong><br>
+                    <a href="${telegramLink}" target="_blank">
+                        👆 Нажмите, чтобы отправить в Telegram
+                    </a>
+                </div>
+            `;
+            linkDiv.style.display = 'block';
+        }
+
+        /**
+         * Обработка отправки формы
+         */
+        document.getElementById('requestForm').addEventListener('submit', async function(e) {
             e.preventDefault();
 
-            // Проверяем, что выбрана проблема
             const selectedProblem = document.querySelector('input[name="problem"]:checked');
             if (!selectedProblem) {
                 alert('Пожалуйста, выберите проблему');
                 return;
             }
 
-            // Получаем описание проблемы
             let problemDescription = '';
             if (selectedProblem.value === 'other') {
                 const customText = document.getElementById('customText').value.trim();
@@ -300,7 +578,6 @@
                 }
                 problemDescription = 'Другая проблема: ' + customText;
             } else {
-                // Берем текст из label
                 const problemLabels = {
                     'soap': 'Закончилось мыло',
                     'paper': 'Закончились бумажные принадлежности',
@@ -310,238 +587,39 @@
                 problemDescription = problemLabels[selectedProblem.value];
             }
 
-            // УПРОЩЕНО: Собираем данные заявки только с названием из QR-кода
             const requestData = {
-                // Данные помещения из QR-кода (только название)
-                roomId: roomData.id,                    // Полное название из QR-кода
-                roomDisplayName: roomData.displayName,  // То же самое название
-
-                // Данные проблемы
+                roomId: roomData.id,
+                roomDisplayName: roomData.displayName,
                 problemType: selectedProblem.value,
                 problemDescription: problemDescription,
-
-                // Время
                 date: new Date().toLocaleDateString('ru-RU'),
                 time: new Date().toLocaleTimeString('ru-RU'),
-                timestamp: new Date().toISOString(),
-
-                // URL для отладки
-                sourceUrl: window.location.href
+                timestamp: new Date().toISOString()
             };
 
-            // Выводим данные в консоль для проверки
-            console.log('Данные заявки:', requestData);
-            
-            // Имитируем отправку
-            sendRequest(requestData);
+            await sendRequest(requestData);
         });
 
         /**
-         * АЛЬТЕРНАТИВНЫЙ СПОСОБ 2: Через другой CORS прокси
-         */
-        async function sendToTelegramAlt(requestData) {
-            const BOT_TOKEN = '8103662058:AAEwLBodQgk6oHS2oKbPHRIhxgFqWADaDo4';
-            const CHAT_ID = '-4928953118';
-
-            const message = `🔧 НОВАЯ ЗАЯВКА НА ОБСЛУЖИВАНИЕ
-
-📍 Помещение: ${requestData.roomDisplayName}
-⚠️ Проблема: ${requestData.problemDescription}
-🕐 Время: ${requestData.date} в ${requestData.time}
-
-#заявка #обслуживание`;
-
-            try {
-                // Альтернативный прокси
-                const telegramUrl = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
-                const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(telegramUrl)}`;
-                
-                const response = await fetch(proxyUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        chat_id: CHAT_ID,
-                        text: message
-                    })
-                });
-
-                const result = await response.json();
-                return { success: result.ok, data: result, error: result.description };
-                
-            } catch (error) {
-                console.error('Ошибка альтернативного способа:', error);
-                return { success: false, error: error.message };
-            }
-        }
-
-        /**
-         * СПОСОБ 3: Создание ссылки для отправки вручную
-         */
-        function createTelegramLink(requestData) {
-            const message = `🔧 НОВАЯ ЗАЯВКА НА ОБСЛУЖИВАНИЕ
-
-📍 Помещение: ${requestData.roomDisplayName}
-⚠️ Проблема: ${requestData.problemDescription}  
-🕐 Время: ${requestData.date} в ${requestData.time}
-
-#заявка #обслуживание`;
-
-            // Создаем ссылку для отправки в любой чат
-            const telegramLink = `https://t.me/share/url?url=&text=${encodeURIComponent(message)}`;
-            
-            console.log('Ссылка для отправки в Telegram:', telegramLink);
-            
-            // Показываем пользователю ссылку
-            const linkDiv = document.createElement('div');
-            linkDiv.innerHTML = `
-                <div style="background: #e3f2fd; padding: 15px; margin: 10px 0; border-radius: 5px;">
-                    <strong>Автоматическая отправка недоступна</strong><br>
-                    <a href="${telegramLink}" target="_blank" style="color: #2196F3;">
-                        👆 Нажмите, чтобы отправить в Telegram
-                    </a>
-                </div>
-            `;
-            
-            document.querySelector('.container').appendChild(linkDiv);
-            
-            return telegramLink;
-        }
-        async function sendToTelegramHTML(requestData) {
-            // ВАЖНО: Замените эти значения на ваши!
-            const BOT_TOKEN = 'ВАШ_ТОКЕН_БОТА';  // Получите у @BotFather
-            const CHAT_ID = 'ВАШ_CHAT_ID';       // ID группы куда отправлять
-
-            // Экранируем специальные символы для HTML
-            function escapeHtml(text) {
-                return text
-                    .replace(/&/g, '&amp;')
-                    .replace(/</g, '&lt;')
-                    .replace(/>/g, '&gt;');
-            }
-
-            // Формируем сообщение с HTML разметкой
-            const message = `🔧 <b>НОВАЯ ЗАЯВКА НА ОБСЛУЖИВАНИЕ</b>
-
-📍 <b>Помещение:</b> ${escapeHtml(requestData.roomDisplayName)}
-
-⚠️ <b>Проблема:</b> ${escapeHtml(requestData.problemDescription)}
-
-🕐 <b>Время:</b> ${escapeHtml(requestData.date)} в ${escapeHtml(requestData.time)}
-
-#заявка #обслуживание`;
-
-            try {
-                const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
-                
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        chat_id: CHAT_ID,
-                        text: message,
-                        parse_mode: 'HTML'
-                    })
-                });
-
-                const result = await response.json();
-                
-                if (result.ok) {
-                    console.log('Сообщение отправлено в Telegram!', result);
-                    return { success: true, data: result };
-                } else {
-                    console.error('Ошибка Telegram API:', result);
-                    return { success: false, error: result.description };
-                }
-                
-            } catch (error) {
-                console.error('Ошибка отправки в Telegram:', error);
-                return { success: false, error: error.message };
-            }
-        }
-        async function sendToTelegram(requestData) {
-            // ВАЖНО: Замените эти значения на ваши!
-            const BOT_TOKEN = 'ВАШ_ТОКЕН_БОТА';  // Получите у @BotFather
-            const CHAT_ID = 'ВАШ_CHAT_ID';       // ID группы куда отправлять
-
-            // Формируем сообщение БЕЗ Markdown (чтобы избежать ошибок парсинга)
-            const message = `🔧 НОВАЯ ЗАЯВКА НА ОБСЛУЖИВАНИЕ
-
-📍 Помещение: ${requestData.roomDisplayName}
-
-⚠️ Проблема: ${requestData.problemDescription}
-
-🕐 Время: ${requestData.date} в ${requestData.time}
-
-#заявка #обслуживание`;
-
-            try {
-                const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
-                
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        chat_id: CHAT_ID,
-                        text: message
-                        // Убрали parse_mode чтобы избежать ошибок
-                    })
-                });
-
-                const result = await response.json();
-                
-                if (result.ok) {
-                    console.log('Сообщение отправлено в Telegram!', result);
-                    return { success: true, data: result };
-                } else {
-                    console.error('Ошибка Telegram API:', result);
-                    return { success: false, error: result.description };
-                }
-                
-            } catch (error) {
-                console.error('Ошибка отправки в Telegram:', error);
-                return { success: false, error: error.message };
-            }
-        }
-
-        /**
-         * УМНАЯ отправка - пробует разные способы
+         * Отправка заявки
          */
         async function sendRequest(data) {
             const submitBtn = document.querySelector('.submit-btn');
+            const linkDiv = document.getElementById('telegramLinkDiv');
+            
             submitBtn.textContent = 'Отправляем...';
             submitBtn.disabled = true;
+            linkDiv.style.display = 'none';
 
             try {
-                console.log('Попытка 1: Основной CORS прокси');
-                let result = await sendToTelegram(data);
-                
-                if (!result.success) {
-                    console.log('Попытка 2: Альтернативный прокси');
-                    result = await sendToTelegramAlt(data);
-                }
-                
-                if (result.success) {
+                if (telegramConfig.isConfigured) {
+                    await sendToTelegram(data);
                     showSuccess();
-                    console.log('✅ Заявка успешно отправлена в Telegram!');
                 } else {
-                    console.log('❌ Автоматическая отправка не удалась, создаем ссылку...');
-                    
-                    // Если автоматическая отправка не работает, создаем ссылку
-                    createTelegramLink(data);
-                    
-                    showError('Откройте ссылку выше для отправки в Telegram');
+                    throw new Error('Telegram не настроен');
                 }
-                
             } catch (error) {
-                console.error('❌ Все способы не сработали:', error);
-                
-                // В крайнем случае создаем ссылку
+                console.error('Ошибка отправки:', error);
                 createTelegramLink(data);
                 showError('Используйте ссылку выше для отправки в Telegram');
             }
@@ -551,7 +629,7 @@
         }
 
         /**
-         * Показать сообщение об успехе (без изменений)
+         * Показать успех
          */
         function showSuccess() {
             const successMsg = document.getElementById('successMessage');
@@ -560,7 +638,6 @@
             successMsg.style.display = 'block';
             errorMsg.style.display = 'none';
 
-            // Сбрасываем форму через 3 секунды
             setTimeout(function() {
                 resetForm();
                 successMsg.style.display = 'none';
@@ -568,7 +645,7 @@
         }
 
         /**
-         * Показать сообщение об ошибке (обновлено для показа деталей)
+         * Показать ошибку
          */
         function showError(errorText = 'Ошибка отправки. Попробуйте еще раз.') {
             const successMsg = document.getElementById('successMessage');
@@ -578,125 +655,46 @@
             errorMsg.style.display = 'block';
             successMsg.style.display = 'none';
 
-            // Скрываем ошибку через 5 секунд
             setTimeout(function() {
                 errorMsg.style.display = 'none';
             }, 5000);
         }
 
         /**
-         * Сброс формы (без изменений)
+         * Сброс формы
          */
         function resetForm() {
-            // Убираем выделение
             document.querySelectorAll('.problem-item').forEach(item => {
                 item.classList.remove('selected');
             });
 
-            // Сбрасываем радио-кнопки
             document.querySelectorAll('input[name="problem"]').forEach(radio => {
                 radio.checked = false;
             });
 
-            // Скрываем и очищаем поле для текста
             const customText = document.getElementById('customText');
             customText.style.display = 'none';
             customText.value = '';
+
+            const linkDiv = document.getElementById('telegramLinkDiv');
+            linkDiv.style.display = 'none';
         }
 
-        // ============ ФУНКЦИИ ДЛЯ НАСТРОЙКИ TELEGRAM ============
-        
-        /**
-         * Функция для получения Chat ID группы
-         * 1. Добавьте бота в группу
-         * 2. Отправьте любое сообщение в группу
-         * 3. Вызовите эту функцию в консоли: getChatId()
-         */
-        async function getChatId() {
-            const BOT_TOKEN = 'ВАШ_ТОКЕН_БОТА'; // Замените на ваш токен
-            
-            try {
-                const url = `https://api.telegram.org/bot${BOT_TOKEN}/getUpdates`;
-                const response = await fetch(url);
-                const data = await response.json();
-                
-                console.log('Последние сообщения:');
-                data.result.forEach((update, index) => {
-                    if (update.message && update.message.chat) {
-                        console.log(`${index + 1}. Chat ID: ${update.message.chat.id}, Название: "${update.message.chat.title || update.message.chat.first_name}"`);
-                    }
-                });
-                
-                return data;
-            } catch (error) {
-                console.error('Ошибка получения Chat ID:', error);
-            }
-        }
-
-        /**
-         * Функция для тестирования отправки в Telegram
-         */
-        async function testTelegramSend() {
-            const testData = {
-                roomDisplayName: 'ТЕСТ_Туалет_муж_Корпус_А_4_эт',
-                problemDescription: 'Тестовое сообщение из веб-приложения',
-                date: new Date().toLocaleDateString('ru-RU'),
-                time: new Date().toLocaleTimeString('ru-RU')
-            };
-            
-            console.log('Отправляем тестовое сообщение...');
-            
-            // Тестируем простой текст
-            console.log('Тест 1: Простой текст');
-            const result1 = await sendToTelegram(testData);
-            
-            if (result1.success) {
-                console.log('✅ Тест простого текста успешен!');
-            } else {
-                console.log('❌ Тест простого текста не прошел:', result1.error);
-            }
-            
-            // Ждем секунду между отправками
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            
-            // Тестируем HTML разметку
-            console.log('Тест 2: HTML разметка');
-            const result2 = await sendToTelegramHTML(testData);
-            
-            if (result2.success) {
-                console.log('✅ Тест HTML разметки успешен!');
-            } else {
-                console.log('❌ Тест HTML разметки не прошел:', result2.error);
-            }
-        }
-        
-        /**
-         * Функция для тестирования разных помещений
-         * Вызовите в консоли браузера: testQRRoom('Туалет_муж_Корпус_А_4_эт')
-         */
+        // Функции для тестирования (можно вызывать в консоли)
         function testQRRoom(roomName) {
-            // Имитируем изменение URL
             const newUrl = `${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(roomName)}`;
             window.history.pushState({}, '', newUrl);
             
-            // Перезагружаем данные
             loadRoomFromQR();
             updateRoomDisplay();
             showDebugInfo();
-            
-            console.log('Тестируем помещение:', roomData);
         }
 
-        /**
-         * Показать примеры помещений для тестирования
-         */
         function showExampleRooms() {
-            console.log('Примеры помещений для тестирования:');
+            console.log('Примеры для тестирования:');
             console.log('testQRRoom("Туалет_муж_Корпус_А_4_эт")');
             console.log('testQRRoom("Туалет_жен_Корпус_Б_2_эт")');
             console.log('testQRRoom("Кухня_Корпус_А_1_эт")');
-            console.log('testQRRoom("Переговорная_301")');
-            console.log('testQRRoom("Склад_подвал")');
         }
     </script>
 </body>
