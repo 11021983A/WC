@@ -337,12 +337,81 @@
         });
 
         /**
-         * АЛЬТЕРНАТИВНАЯ ФУНКЦИЯ: Отправка с HTML разметкой (более надежная)
+         * АЛЬТЕРНАТИВНЫЙ СПОСОБ 2: Через другой CORS прокси
          */
+        async function sendToTelegramAlt(requestData) {
+            const BOT_TOKEN = 'ВАШ_ТОКЕН_БОТА';
+            const CHAT_ID = 'ВАШ_CHAT_ID';
+
+            const message = `🔧 НОВАЯ ЗАЯВКА НА ОБСЛУЖИВАНИЕ
+
+📍 Помещение: ${requestData.roomDisplayName}
+⚠️ Проблема: ${requestData.problemDescription}
+🕐 Время: ${requestData.date} в ${requestData.time}
+
+#заявка #обслуживание`;
+
+            try {
+                // Альтернативный прокси
+                const telegramUrl = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
+                const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(telegramUrl)}`;
+                
+                const response = await fetch(proxyUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        chat_id: CHAT_ID,
+                        text: message
+                    })
+                });
+
+                const result = await response.json();
+                return { success: result.ok, data: result, error: result.description };
+                
+            } catch (error) {
+                console.error('Ошибка альтернативного способа:', error);
+                return { success: false, error: error.message };
+            }
+        }
+
+        /**
+         * СПОСОБ 3: Создание ссылки для отправки вручную
+         */
+        function createTelegramLink(requestData) {
+            const message = `🔧 НОВАЯ ЗАЯВКА НА ОБСЛУЖИВАНИЕ
+
+📍 Помещение: ${requestData.roomDisplayName}
+⚠️ Проблема: ${requestData.problemDescription}  
+🕐 Время: ${requestData.date} в ${requestData.time}
+
+#заявка #обслуживание`;
+
+            // Создаем ссылку для отправки в любой чат
+            const telegramLink = `https://t.me/share/url?url=&text=${encodeURIComponent(message)}`;
+            
+            console.log('Ссылка для отправки в Telegram:', telegramLink);
+            
+            // Показываем пользователю ссылку
+            const linkDiv = document.createElement('div');
+            linkDiv.innerHTML = `
+                <div style="background: #e3f2fd; padding: 15px; margin: 10px 0; border-radius: 5px;">
+                    <strong>Автоматическая отправка недоступна</strong><br>
+                    <a href="${telegramLink}" target="_blank" style="color: #2196F3;">
+                        👆 Нажмите, чтобы отправить в Telegram
+                    </a>
+                </div>
+            `;
+            
+            document.querySelector('.container').appendChild(linkDiv);
+            
+            return telegramLink;
+        }
         async function sendToTelegramHTML(requestData) {
             // ВАЖНО: Замените эти значения на ваши!
-            const BOT_TOKEN = '8103662058:AAEwLBodQgk6oHS2oKbPHRIhxgFqWADaDo4';  // Получите у @BotFather
-            const CHAT_ID = '-4928953118';       // ID группы куда отправлять
+            const BOT_TOKEN = 'ВАШ_ТОКЕН_БОТА';  // Получите у @BotFather
+            const CHAT_ID = 'ВАШ_CHAT_ID';       // ID группы куда отправлять
 
             // Экранируем специальные символы для HTML
             function escapeHtml(text) {
@@ -441,37 +510,42 @@
         }
 
         /**
-         * ОБНОВЛЕННАЯ имитация отправки заявки - теперь с Telegram
+         * УМНАЯ отправка - пробует разные способы
          */
         async function sendRequest(data) {
-            // Показываем, что отправляем
             const submitBtn = document.querySelector('.submit-btn');
             submitBtn.textContent = 'Отправляем...';
             submitBtn.disabled = true;
 
             try {
-                // ВЫБЕРИТЕ ОДИН ИЗ СПОСОБОВ:
+                console.log('Попытка 1: Основной CORS прокси');
+                let result = await sendToTelegram(data);
                 
-                // Способ 1: Простой текст (рекомендуется)
-                const telegramResult = await sendToTelegram(data);
+                if (!result.success) {
+                    console.log('Попытка 2: Альтернативный прокси');
+                    result = await sendToTelegramAlt(data);
+                }
                 
-                // Способ 2: С HTML разметкой (если нужно жирное выделение)
-                // const telegramResult = await sendToTelegramHTML(data);
-                
-                if (telegramResult.success) {
+                if (result.success) {
                     showSuccess();
                     console.log('✅ Заявка успешно отправлена в Telegram!');
                 } else {
-                    showError(`Ошибка Telegram: ${telegramResult.error}`);
-                    console.error('❌ Ошибка отправки в Telegram:', telegramResult.error);
+                    console.log('❌ Автоматическая отправка не удалась, создаем ссылку...');
+                    
+                    // Если автоматическая отправка не работает, создаем ссылку
+                    createTelegramLink(data);
+                    
+                    showError('Откройте ссылку выше для отправки в Telegram');
                 }
                 
             } catch (error) {
-                console.error('❌ Общая ошибка:', error);
-                showError('Ошибка сети. Проверьте подключение.');
+                console.error('❌ Все способы не сработали:', error);
+                
+                // В крайнем случае создаем ссылку
+                createTelegramLink(data);
+                showError('Используйте ссылку выше для отправки в Telegram');
             }
 
-            // Возвращаем кнопку в нормальное состояние
             submitBtn.textContent = 'Отправить заявку';
             submitBtn.disabled = false;
         }
