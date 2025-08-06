@@ -375,6 +375,15 @@
                 enabled: true,  // Включить сохранение в Google Таблицы
                 deploymentId: 'AKfycbzaIpvNamlUv-r9Bqf-5YgzdTLjIq3MiMLoqFRMrEeIQ4insxldlBtMpzmr95kJNYXH',
                 sheetUrl: 'https://script.google.com/macros/s/AKfycbzaIpvNamlUv-r9Bqf-5YgzdTLjIq3MiMLoqFRMrEeIQ4insxldlBtMpzmr95kJNYXH/exec',
+                
+                // Настройка дублирующих сообщений из Google Sheets
+                telegramFallback: {
+                    enabled: true,  // Включить отправку дублей из Google Sheets
+                    botToken: '7895148059:AAHZoT_8pILUgbEGLfXGTzCKfWzCo0K3qLI',  // Тот же токен
+                    chatId: '-1002466052064',  // Тот же чат
+                    delaySeconds: 30  // Задержка перед отправкой дубля (секунды)
+                },
+                
                 // Настройки колонок (можно менять порядок)
                 columns: {
                     timestamp: 'A',      // Дата и время
@@ -383,7 +392,8 @@
                     problemDesc: 'D',    // Описание проблемы
                     status: 'E',        // Статус (Новая/В работе/Выполнена)
                     telegramSent: 'F',  // Отправлено в Telegram (Да/Нет)
-                    userAgent: 'G'      // Устройство пользователя
+                    userAgent: 'G',     // Устройство пользователя
+                    telegramFallbackSent: 'H'  // Дубль из Google Sheets отправлен
                 }
             },
             
@@ -596,7 +606,7 @@
 
         // ============ GOOGLE SHEETS ИНТЕГРАЦИЯ ============
 
-        async function saveToGoogleSheets(data, telegramSent = false) {
+        async function saveToGoogleSheets(data, telegramSent = false, needsTelegramFallback = false) {
             if (!CONFIG.googleSheets.enabled || !CONFIG.googleSheets.deploymentId) {
                 throw new Error('Google Sheets не настроен');
             }
@@ -610,6 +620,7 @@
                 status: 'Новая',
                 telegramSent: telegramSent ? 'Да' : 'Нет',
                 userAgent: navigator.userAgent.substring(0, 100), // Ограничиваем длину
+                telegramFallbackSent: 'Нет', // Изначально дубль не отправлен
                 
                 // Дополнительные данные для анализа
                 roomId: data.roomId,
@@ -618,7 +629,15 @@
                 timestampISO: data.timestamp,
                 sourceUrl: window.location.href.substring(0, 200), // Ограничиваем длину
                 networkStatus: isOnline ? 'Online' : 'Offline',
-                retryAttempt: retryAttempt
+                retryAttempt: retryAttempt,
+                
+                // Данные для отправки дубля через Google Sheets
+                needsTelegramFallback: needsTelegramFallback,
+                telegramFallbackConfig: needsTelegramFallback ? {
+                    botToken: CONFIG.googleSheets.telegramFallback.botToken,
+                    chatId: CONFIG.googleSheets.telegramFallback.chatId,
+                    delaySeconds: CONFIG.googleSheets.telegramFallback.delaySeconds
+                } : null
             };
 
             const webAppUrl = `https://script.google.com/macros/s/${CONFIG.googleSheets.deploymentId}/exec`;
@@ -641,7 +660,7 @@
                 });
 
                 clearTimeout(timeoutId);
-                console.log('✅ Данные отправлены в Google Sheets');
+                console.log('✅ Данные отправлены в Google Sheets' + (needsTelegramFallback ? ' (запрошен дубль в Telegram)' : ''));
                 return { success: true };
                 
             } catch (error) {
@@ -746,9 +765,9 @@ ${attempt > 1 ? `🔄 Попытка: ${attempt}` : ''}
                     // НЕ показываем повторное сообщение пользователю - он уже получил подтверждение
                     console.log('✅ Фоновая отправка в Telegram успешна (пользователь уже уведомлен)');
                     
-                    // Обновляем в Google Sheets
+                    // Обновляем в Google Sheets (без запроса дубля, т.к. фоновая отправка успешна)
                     try {
-                        await saveToGoogleSheets(data, true);
+                        await saveToGoogleSheets(data, true, false);
                         console.log('✅ Google Sheets: статус обновлен после фоновой отправки');
                     } catch (error) {
                         console.log('⚠️ Не удалось обновить статус в Google Sheets:', error.message);
@@ -808,9 +827,12 @@ ${attempt > 1 ? `🔄 Попытка: ${attempt}` : ''}
 
             // Сначала сохраняем в Google Sheets
             try {
-                await saveToGoogleSheets(data, false);
+                // Определяем, нужен ли дубль из Google Sheets
+                const needsFallback = CONFIG.googleSheets.telegramFallback.enabled && !telegramSuccess;
+                
+                await saveToGoogleSheets(data, telegramSuccess, needsFallback);
                 sheetsSuccess = true;
-                console.log('✅ Google Sheets: данные сохранены');
+                console.log('✅ Google Sheets: данные сохранены' + (needsFallback ? ' (запрошен Telegram дубль)' : ''));
             } catch (error) {
                 console.log('❌ Google Sheets: не удалось сохранить -', error.message);
             }
@@ -821,10 +843,10 @@ ${attempt > 1 ? `🔄 Попытка: ${attempt}` : ''}
                 telegramSuccess = true;
                 console.log('✅ Telegram: заявка отправлена');
                 
-                // Обновляем статус в Google Sheets
+                // Обновляем статус в Google Sheets (без запроса дубля)
                 if (sheetsSuccess) {
                     try {
-                        await saveToGoogleSheets(data, true);
+                        await saveToGoogleSheets(data, true, false);
                         console.log('✅ Google Sheets: статус обновлен');
                     } catch (error) {
                         console.log('⚠️ Не удалось обновить статус в Google Sheets:', error.message);
@@ -1160,25 +1182,27 @@ ${attempt > 1 ? `🔄 Попытка: ${attempt}` : ''}
             });
         }
 
-        // Функция для тестирования Google Sheets
-        async function testGoogleSheets() {
-            console.log('📊 Тестирование Google Sheets...');
+        // Функция для тестирования Google Sheets с Telegram Fallback
+        async function testGoogleSheetsWithFallback() {
+            console.log('📊🔄 Тестирование Google Sheets с Telegram Fallback...');
             
             const testData = {
-                roomId: 'TEST_ROOM',
-                roomDisplayName: 'Тестовое помещение',
-                problemType: 'test',
-                problemDescription: 'Тестовая заявка для проверки Google Sheets',
+                roomId: 'TEST_FALLBACK_ROOM',
+                roomDisplayName: 'Тестовое помещение (Fallback)',
+                problemType: 'test_fallback',
+                problemDescription: 'Тестовая заявка для проверки дублирующих сообщений из Google Sheets',
                 date: new Date().toLocaleDateString('ru-RU'),
                 time: new Date().toLocaleTimeString('ru-RU'),
                 timestamp: new Date().toISOString()
             };
 
             try {
-                await saveToGoogleSheets(testData, true);
-                console.log('✅ Тест Google Sheets успешен! Проверьте таблицу.');
+                // Имитируем ситуацию, когда Telegram не сработал, но нужен fallback
+                await saveToGoogleSheets(testData, false, true);
+                console.log('✅ Тест с Fallback запущен! Дубль должен появиться в Telegram через 30 секунд.');
+                console.log('📱 Проверьте чат Telegram и Google Sheets через 1-2 минуты.');
             } catch (error) {
-                console.log('❌ Тест Google Sheets не прошел:', error.message);
+                console.log('❌ Тест с Fallback не прошел:', error.message);
             }
         }
 
@@ -1269,7 +1293,7 @@ ${attempt > 1 ? `🔄 Попытка: ${attempt}` : ''}
 
         // Добавляем функции в глобальную область для доступа из консоли
         window.quickTest = quickTest;
-        window.testGoogleSheets = testGoogleSheets;
+        window.testGoogleSheetsWithFallback = testGoogleSheetsWithFallback;
         window.testTelegram = testTelegram;
         window.healthCheck = healthCheck;
         window.enableDebug = enableDebug;
@@ -1277,8 +1301,19 @@ ${attempt > 1 ? `🔄 Попытка: ${attempt}` : ''}
         window.testQRRoom = testQRRoom;
 
         // Лог готовности системы
-        console.log('🚀 Система заявок готова к работе!');
-        console.log('💡 Для тестирования используйте: quickTest(), healthCheck(), enableDebug()');
+        console.log('🚀 Система заявок с Telegram Fallback готова к работе!');
+        console.log('💡 Для тестирования используйте:');
+        console.log('   quickTest() - быстрая проверка всех систем');
+        console.log('   healthCheck() - полная диагностика');
+        console.log('   testGoogleSheetsWithFallback() - тест дублирующих сообщений');
+        console.log('   testTelegram() - тест прямой отправки в Telegram');
+        console.log('   enableDebug() - включить отладочный режим');
+        console.log('');
+        console.log('🔄 Новая возможность: если Telegram не доставляет сообщение,');
+        console.log('   Google Sheets автоматически отправит дубль через 30 секунд!');
+    </script>
+</body>
+</html>
     </script>
 </body>
 </html>
