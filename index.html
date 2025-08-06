@@ -315,6 +315,23 @@
                 }
             },
             
+            // Google Sheets настройки для сбора статистики
+            googleSheets: {
+                enabled: true,  // Включить сохранение в Google Таблицы
+                deploymentId: 'AKfycbxtVCCU2mVRn9JVuILPC1PH2dQCxTP614cVqMVG1FOZpYoWJVsZ8b3h73kwNdGhp0g5',
+                sheetUrl: 'https://docs.google.com/spreadsheets/d/1pCi5l2qFWKk3ZfagZO1tHHd71wG-Pns5Xu7-yiLLYno/edit',
+                // Настройки колонок (можно менять порядок)
+                columns: {
+                    timestamp: 'A',      // Дата и время
+                    room: 'B',          // Помещение
+                    problemType: 'C',    // Тип проблемы
+                    problemDesc: 'D',    // Описание проблемы
+                    status: 'E',        // Статус (Новая/В работе/Выполнена)
+                    telegramSent: 'F',  // Отправлено в Telegram (Да/Нет)
+                    userAgent: 'G'      // Устройство пользователя
+                }
+            },
+            
             // Email настройки (опционально)
             email: {
                 enabled: false,
@@ -400,6 +417,76 @@
             }
         }
 
+        // ============ GOOGLE SHEETS ИНТЕГРАЦИЯ ============
+
+        async function saveToGoogleSheets(data, telegramSent = false) {
+            if (!CONFIG.googleSheets.enabled || !CONFIG.googleSheets.deploymentId) {
+                throw new Error('Google Sheets не настроен');
+            }
+
+            // Подготавливаем данные для отправки
+            const sheetData = {
+                timestamp: new Date().toLocaleString('ru-RU'),
+                room: data.roomDisplayName,
+                problemType: data.problemType,
+                problemDescription: data.problemDescription,
+                status: 'Новая',
+                telegramSent: telegramSent ? 'Да' : 'Нет',
+                userAgent: navigator.userAgent.substring(0, 100), // Ограничиваем длину
+                
+                // Дополнительные данные для анализа
+                roomId: data.roomId,
+                date: data.date,
+                time: data.time,
+                timestampISO: data.timestamp,
+                sourceUrl: window.location.href.substring(0, 200) // Ограничиваем длину
+            };
+
+            const webAppUrl = `https://script.google.com/macros/s/${CONFIG.googleSheets.deploymentId}/exec`;
+            
+            const response = await fetch(webAppUrl, {
+                method: 'POST',
+                mode: 'no-cors', // Важно для Google Apps Script
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    action: 'addRequest',
+                    data: sheetData
+                })
+            });
+
+            // При no-cors мы не можем прочитать ответ, поэтому считаем что успешно
+            // если не было исключения
+            console.log('Данные отправлены в Google Sheets');
+            return { success: true };
+        }
+
+        // Функция для получения статистики (опционально)
+        async function getStatistics() {
+            if (!CONFIG.googleSheets.enabled) {
+                console.log('Google Sheets не настроен');
+                return;
+            }
+
+            try {
+                const webAppUrl = `https://script.google.com/macros/s/${CONFIG.googleSheets.deploymentId}/exec?action=getStats`;
+                
+                // Используем JSONP для обхода CORS
+                const script = document.createElement('script');
+                script.src = webAppUrl + '&callback=handleStatsCallback';
+                document.head.appendChild(script);
+                
+            } catch (error) {
+                console.error('Ошибка получения статистики:', error);
+            }
+        }
+
+        // Callback для статистики (глобальная функция)
+        window.handleStatsCallback = function(stats) {
+            console.log('📊 Статистика заявок:', stats);
+        };
+
         // ============ ОТПРАВКА ЗАЯВОК ============
 
         document.getElementById('requestForm').addEventListener('submit', async function(e) {
@@ -447,12 +534,31 @@
             submitBtn.textContent = 'Отправляем...';
             submitBtn.disabled = true;
 
+            let telegramSuccess = false;
+            let sheetsSuccess = false;
+
             try {
                 // Пробуем автоматическую отправку в Telegram
                 await sendToTelegram(data);
-                showSuccess();
+                telegramSuccess = true;
+                console.log('✅ Telegram: заявка отправлена');
             } catch (error) {
-                console.log('Автоматическая отправка не удалась:', error.message);
+                console.log('❌ Telegram: не удалось отправить -', error.message);
+            }
+
+            try {
+                // Сохраняем в Google Таблицы (независимо от Telegram)
+                await saveToGoogleSheets(data, telegramSuccess);
+                sheetsSuccess = true;
+                console.log('✅ Google Sheets: данные сохранены');
+            } catch (error) {
+                console.log('❌ Google Sheets: не удалось сохранить -', error.message);
+            }
+
+            // Показываем результат пользователю
+            if (telegramSuccess) {
+                showSuccess(sheetsSuccess ? 'Заявка отправлена и сохранена в базе данных!' : 'Заявка отправлена!');
+            } else {
                 showAlternativeMethods(data);
             }
 
@@ -608,11 +714,12 @@
 
         // ============ ИНТЕРФЕЙС ============
 
-        function showSuccess() {
+        function showSuccess(message = '✅ Заявка отправлена! Инженеры получили уведомление.') {
             const successMsg = document.getElementById('successMessage');
             const errorMsg = document.getElementById('errorMessage');
             const alternativeMethods = document.getElementById('alternativeMethods');
             
+            successMsg.textContent = message;
             successMsg.style.display = 'block';
             errorMsg.style.display = 'none';
             alternativeMethods.style.display = 'none';
@@ -620,7 +727,7 @@
             setTimeout(function() {
                 resetForm();
                 successMsg.style.display = 'none';
-            }, 3000);
+            }, 4000); // Увеличили время показа до 4 секунд
         }
 
         function resetForm() {
@@ -662,9 +769,48 @@
             // Показываем конфигурацию (без секретных данных)
             console.log('Конфигурация:', {
                 telegramConfigured: !!(CONFIG.telegram.botToken && CONFIG.telegram.chatId),
+                googleSheetsEnabled: CONFIG.googleSheets.enabled,
                 emailEnabled: CONFIG.email.enabled,
-                smsEnabled: CONFIG.sms.enabled
+                smsEnabled: CONFIG.sms.enabled,
+                sheetUrl: CONFIG.googleSheets.sheetUrl
             });
+        }
+
+        // Функция для тестирования Google Sheets
+        async function testGoogleSheets() {
+            console.log('🔧 Тестирование Google Sheets...');
+            
+            const testData = {
+                roomId: 'TEST_ROOM',
+                roomDisplayName: 'Тестовое помещение',
+                problemType: 'test',
+                problemDescription: 'Тестовая заявка для проверки Google Sheets',
+                date: new Date().toLocaleDateString('ru-RU'),
+                time: new Date().toLocaleTimeString('ru-RU'),
+                timestamp: new Date().toISOString()
+            };
+
+            try {
+                await saveToGoogleSheets(testData, true);
+                console.log('✅ Тест Google Sheets успешен! Проверьте таблицу.');
+            } catch (error) {
+                console.log('❌ Тест Google Sheets не прошел:', error.message);
+            }
+        }
+
+        // Функция для получения ссылки на таблицу
+        function openGoogleSheets() {
+            if (CONFIG.googleSheets.sheetUrl) {
+                window.open(CONFIG.googleSheets.sheetUrl, '_blank');
+            } else {
+                console.log('❌ URL Google Sheets не настроен');
+            }
+        }
+
+        // Показать статистику (если доступно)
+        function showStats() {
+            getStatistics();
+            console.log('📊 Запрашиваем статистику... Результат появится в консоли.');
         }
     </script>
 </body>
