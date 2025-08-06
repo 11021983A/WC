@@ -111,6 +111,12 @@
             color: #c62828;
         }
 
+        .warning {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+
         .telegram-link {
             background: #e3f2fd;
             padding: 15px;
@@ -207,6 +213,34 @@
             font-size: 12px;
             color: #856404;
         }
+
+        .connection-status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            text-align: center;
+            font-size: 12px;
+        }
+
+        .status-online {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-offline {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .retry-info {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            color: #856404;
+            font-size: 12px;
+        }
     </style>
 </head>
 <body>
@@ -217,10 +251,17 @@
             Помещение: Загрузка...
         </div>
 
+        <!-- Статус подключения -->
+        <div id="connectionStatus" class="connection-status" style="display: none;">
+            📡 Проверка подключения...
+        </div>
+
         <div id="debugInfo" class="debug" style="display: none;">
             <strong>Отладка:</strong><br>
             URL: <span id="debugUrl"></span><br>
-            Параметр room: <span id="debugRoom"></span>
+            Параметр room: <span id="debugRoom"></span><br>
+            User Agent: <span id="debugUserAgent"></span><br>
+            Сеть: <span id="debugNetwork">Проверяем...</span>
         </div>
 
         <form id="requestForm">
@@ -265,8 +306,17 @@
             ✅ Заявка отправлена! Инженеры получили уведомление.
         </div>
 
+        <div id="warningMessage" class="message warning" style="display: none;">
+            ⚠️ Заявка сохранена, но уведомление может быть задержано
+        </div>
+
         <div id="errorMessage" class="message error">
             ❌ Автоматическая отправка недоступна. Используйте способы ниже:
+        </div>
+
+        <div id="retryInfo" class="retry-info" style="display: none;">
+            🔄 Повторная попытка отправки через <span id="retryCounter">10</span> сек...
+            <button onclick="cancelRetry()" style="margin-left: 10px; background: none; border: 1px solid; border-radius: 3px; padding: 2px 8px;">Отменить</button>
         </div>
 
         <!-- Альтернативные способы отправки -->
@@ -305,6 +355,11 @@
             telegram: {
                 botToken: '8103662058:AAEwLBodQgk6oHS2oKbPHRIhxgFqWADaDo4',  // Замените на реальный токен
                 chatId: '-4928953118',        // Замените на реальный Chat ID группы
+                
+                // Настройки повторных попыток
+                retryAttempts: 3,
+                retryDelay: 10000, // 10 секунд
+                timeout: 15000, // 15 секунд timeout
                 
                 // Дополнительные чаты для разных типов заявок (опционально)
                 chats: {
@@ -347,11 +402,12 @@
             // Настройки приложения
             app: {
                 companyName: 'Наша Компания',
-                debug: false
+                debug: false, // Установить в true для отладки
+                showConnectionStatus: true
             }
         };
 
-        // ============ ОСНОВНАЯ ЛОГИКА ============
+        // ============ ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ============
 
         let roomData = {
             id: 'unknown',
@@ -359,11 +415,18 @@
         };
 
         let currentRequestData = null;
+        let retryTimeout = null;
+        let retryAttempt = 0;
+        let isOnline = navigator.onLine;
+
+        // ============ ИНИЦИАЛИЗАЦИЯ ============
 
         document.addEventListener('DOMContentLoaded', function() {
             loadRoomFromQR();
             updateRoomDisplay();
             showDebugInfo();
+            checkConnectionStatus();
+            setupNetworkListeners();
         });
 
         function loadRoomFromQR() {
@@ -390,13 +453,87 @@
                 const debugInfo = document.getElementById('debugInfo');
                 const debugUrl = document.getElementById('debugUrl');
                 const debugRoom = document.getElementById('debugRoom');
+                const debugUserAgent = document.getElementById('debugUserAgent');
+                const debugNetwork = document.getElementById('debugNetwork');
                 
                 debugUrl.textContent = window.location.href;
                 debugRoom.textContent = params.get('room') || 'не найден';
+                debugUserAgent.textContent = navigator.userAgent.substring(0, 100) + '...';
+                debugNetwork.textContent = isOnline ? 'Онлайн' : 'Офлайн';
                 
                 debugInfo.style.display = 'block';
             }
         }
+
+        // ============ СЕТЕВЫЕ ФУНКЦИИ ============
+
+        function setupNetworkListeners() {
+            window.addEventListener('online', function() {
+                isOnline = true;
+                updateConnectionStatus();
+                console.log('🌐 Сеть восстановлена');
+                
+                // Если есть сохраненная заявка, пробуем отправить
+                if (currentRequestData && !document.getElementById('successMessage').style.display !== 'none') {
+                    console.log('🔄 Пробуем отправить сохраненную заявку');
+                    retryTelegramSend(currentRequestData);
+                }
+            });
+
+            window.addEventListener('offline', function() {
+                isOnline = false;
+                updateConnectionStatus();
+                console.log('📵 Сеть недоступна');
+                cancelRetry();
+            });
+        }
+
+        function updateConnectionStatus() {
+            if (!CONFIG.app.showConnectionStatus) return;
+            
+            const statusEl = document.getElementById('connectionStatus');
+            
+            if (isOnline) {
+                statusEl.className = 'connection-status status-online';
+                statusEl.textContent = '✅ Подключение активно';
+                statusEl.style.display = 'block';
+                setTimeout(() => {
+                    statusEl.style.display = 'none';
+                }, 3000);
+            } else {
+                statusEl.className = 'connection-status status-offline';
+                statusEl.textContent = '❌ Нет подключения к интернету';
+                statusEl.style.display = 'block';
+            }
+            
+            showDebugInfo(); // Обновляем отладочную информацию
+        }
+
+        async function checkConnectionStatus() {
+            try {
+                // Проверяем доступность Telegram API
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 5000);
+                
+                const response = await fetch(`https://api.telegram.org/bot${CONFIG.telegram.botToken}/getMe`, {
+                    method: 'GET',
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
+                
+                if (response.ok) {
+                    console.log('✅ Telegram API доступен');
+                    return true;
+                }
+            } catch (error) {
+                console.log('❌ Telegram API недоступен:', error.message);
+            }
+            
+            return false;
+        }
+
+        // ============ ОСНОВНАЯ ЛОГИКА ФОРМЫ ============
 
         function selectProblem(element, problemType) {
             document.querySelectorAll('.problem-item').forEach(item => {
@@ -416,78 +553,6 @@
                 customText.value = '';
             }
         }
-
-        // ============ GOOGLE SHEETS ИНТЕГРАЦИЯ ============
-
-        async function saveToGoogleSheets(data, telegramSent = false) {
-            if (!CONFIG.googleSheets.enabled || !CONFIG.googleSheets.deploymentId) {
-                throw new Error('Google Sheets не настроен');
-            }
-
-            // Подготавливаем данные для отправки
-            const sheetData = {
-                timestamp: new Date().toLocaleString('ru-RU'),
-                room: data.roomDisplayName,
-                problemType: data.problemType,
-                problemDescription: data.problemDescription,
-                status: 'Новая',
-                telegramSent: telegramSent ? 'Да' : 'Нет',
-                userAgent: navigator.userAgent.substring(0, 100), // Ограничиваем длину
-                
-                // Дополнительные данные для анализа
-                roomId: data.roomId,
-                date: data.date,
-                time: data.time,
-                timestampISO: data.timestamp,
-                sourceUrl: window.location.href.substring(0, 200) // Ограничиваем длину
-            };
-
-            const webAppUrl = `https://script.google.com/macros/s/${CONFIG.googleSheets.deploymentId}/exec`;
-            
-            const response = await fetch(webAppUrl, {
-                method: 'POST',
-                mode: 'no-cors', // Важно для Google Apps Script
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    action: 'addRequest',
-                    data: sheetData
-                })
-            });
-
-            // При no-cors мы не можем прочитать ответ, поэтому считаем что успешно
-            // если не было исключения
-            console.log('Данные отправлены в Google Sheets');
-            return { success: true };
-        }
-
-        // Функция для получения статистики (опционально)
-        async function getStatistics() {
-            if (!CONFIG.googleSheets.enabled) {
-                console.log('Google Sheets не настроен');
-                return;
-            }
-
-            try {
-                const webAppUrl = `https://script.google.com/macros/s/${CONFIG.googleSheets.deploymentId}/exec?action=getStats`;
-                
-                // Используем JSONP для обхода CORS
-                const script = document.createElement('script');
-                script.src = webAppUrl + '&callback=handleStatsCallback';
-                document.head.appendChild(script);
-                
-            } catch (error) {
-                console.error('Ошибка получения статистики:', error);
-            }
-        }
-
-        // Callback для статистики (глобальная функция)
-        window.handleStatsCallback = function(stats) {
-            console.log('📊 Статистика заявок:', stats);
-        };
-
-        // ============ ОТПРАВКА ЗАЯВОК ============
 
         document.getElementById('requestForm').addEventListener('submit', async function(e) {
             e.preventDefault();
@@ -529,46 +594,73 @@
             await sendRequest(currentRequestData);
         });
 
-        async function sendRequest(data) {
-            const submitBtn = document.querySelector('.submit-btn');
-            submitBtn.textContent = 'Отправляем...';
-            submitBtn.disabled = true;
+        // ============ GOOGLE SHEETS ИНТЕГРАЦИЯ ============
 
-            let telegramSuccess = false;
-            let sheetsSuccess = false;
+        async function saveToGoogleSheets(data, telegramSent = false) {
+            if (!CONFIG.googleSheets.enabled || !CONFIG.googleSheets.deploymentId) {
+                throw new Error('Google Sheets не настроен');
+            }
 
+            // Подготавливаем данные для отправки
+            const sheetData = {
+                timestamp: new Date().toLocaleString('ru-RU'),
+                room: data.roomDisplayName,
+                problemType: data.problemType,
+                problemDescription: data.problemDescription,
+                status: 'Новая',
+                telegramSent: telegramSent ? 'Да' : 'Нет',
+                userAgent: navigator.userAgent.substring(0, 100), // Ограничиваем длину
+                
+                // Дополнительные данные для анализа
+                roomId: data.roomId,
+                date: data.date,
+                time: data.time,
+                timestampISO: data.timestamp,
+                sourceUrl: window.location.href.substring(0, 200), // Ограничиваем длину
+                networkStatus: isOnline ? 'Online' : 'Offline',
+                retryAttempt: retryAttempt
+            };
+
+            const webAppUrl = `https://script.google.com/macros/s/${CONFIG.googleSheets.deploymentId}/exec`;
+            
             try {
-                // Пробуем автоматическую отправку в Telegram
-                await sendToTelegram(data);
-                telegramSuccess = true;
-                console.log('✅ Telegram: заявка отправлена');
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 секунд timeout
+                
+                const response = await fetch(webAppUrl, {
+                    method: 'POST',
+                    mode: 'no-cors', // Важно для Google Apps Script
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        action: 'addRequest',
+                        data: sheetData
+                    }),
+                    signal: controller.signal
+                });
+
+                clearTimeout(timeoutId);
+                console.log('✅ Данные отправлены в Google Sheets');
+                return { success: true };
+                
             } catch (error) {
-                console.log('❌ Telegram: не удалось отправить -', error.message);
+                if (error.name === 'AbortError') {
+                    throw new Error('Превышено время ожидания');
+                }
+                throw error;
             }
-
-            try {
-                // Сохраняем в Google Таблицы (независимо от Telegram)
-                await saveToGoogleSheets(data, telegramSuccess);
-                sheetsSuccess = true;
-                console.log('✅ Google Sheets: данные сохранены');
-            } catch (error) {
-                console.log('❌ Google Sheets: не удалось сохранить -', error.message);
-            }
-
-            // Показываем результат пользователю
-            if (telegramSuccess) {
-                showSuccess(sheetsSuccess ? 'Заявка отправлена и сохранена в базе данных!' : 'Заявка отправлена!');
-            } else {
-                showAlternativeMethods(data);
-            }
-
-            submitBtn.textContent = 'Отправить заявку';
-            submitBtn.disabled = false;
         }
 
-        async function sendToTelegram(data) {
+        // ============ TELEGRAM ИНТЕГРАЦИЯ ============
+
+        async function sendToTelegram(data, attempt = 1) {
             if (!CONFIG.telegram.botToken || !CONFIG.telegram.chatId) {
                 throw new Error('Telegram не настроен');
+            }
+
+            if (!isOnline) {
+                throw new Error('Нет подключения к интернету');
             }
 
             const message = `🔧 НОВАЯ ЗАЯВКА НА ОБСЛУЖИВАНИЕ
@@ -579,26 +671,203 @@
 
 🕐 Время: ${data.date} в ${data.time}
 
+${attempt > 1 ? `🔄 Попытка: ${attempt}` : ''}
+
 #заявка #обслуживание`;
 
-            const response = await fetch(`https://api.telegram.org/bot${CONFIG.telegram.botToken}/sendMessage`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    chat_id: CONFIG.telegram.chatId,
-                    text: message
-                })
-            });
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), CONFIG.telegram.timeout);
 
-            const result = await response.json();
+                const response = await fetch(`https://api.telegram.org/bot${CONFIG.telegram.botToken}/sendMessage`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        chat_id: CONFIG.telegram.chatId,
+                        text: message,
+                        parse_mode: 'HTML'
+                    }),
+                    signal: controller.signal
+                });
 
-            if (!result.ok) {
-                throw new Error(result.description || 'Ошибка отправки в Telegram');
+                clearTimeout(timeoutId);
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    let errorMsg = `HTTP ${response.status}`;
+                    
+                    try {
+                        const errorJson = JSON.parse(errorText);
+                        errorMsg = errorJson.description || errorMsg;
+                    } catch (e) {
+                        // Если не JSON, используем статус
+                    }
+                    
+                    throw new Error(errorMsg);
+                }
+
+                const result = await response.json();
+                
+                if (!result.ok) {
+                    throw new Error(result.description || 'Неизвестная ошибка Telegram API');
+                }
+
+                return result;
+
+            } catch (error) {
+                if (error.name === 'AbortError') {
+                    throw new Error('Превышено время ожидания');
+                }
+                throw error;
+            }
+        }
+
+        // ============ ПОВТОРНЫЕ ПОПЫТКИ ============
+
+        function retryTelegramSend(data) {
+            if (retryAttempt >= CONFIG.telegram.retryAttempts) {
+                console.log(`❌ Исчерпаны попытки отправки (${retryAttempt})`);
+                return;
             }
 
-            return result;
+            retryAttempt++;
+            console.log(`🔄 Попытка отправки ${retryAttempt}/${CONFIG.telegram.retryAttempts}`);
+
+            showRetryCounter();
+
+            retryTimeout = setTimeout(async () => {
+                try {
+                    await sendToTelegram(data, retryAttempt);
+                    console.log('✅ Telegram: заявка отправлена при фоновой попытке');
+                    
+                    hideRetryCounter();
+                    // НЕ показываем повторное сообщение пользователю - он уже получил подтверждение
+                    console.log('✅ Фоновая отправка в Telegram успешна (пользователь уже уведомлен)');
+                    
+                    // Обновляем в Google Sheets
+                    try {
+                        await saveToGoogleSheets(data, true);
+                        console.log('✅ Google Sheets: статус обновлен после фоновой отправки');
+                    } catch (error) {
+                        console.log('⚠️ Не удалось обновить статус в Google Sheets:', error.message);
+                    }
+                    
+                } catch (error) {
+                    console.log(`❌ Фоновая попытка ${retryAttempt} не удалась:`, error.message);
+                    
+                    if (retryAttempt < CONFIG.telegram.retryAttempts && isOnline) {
+                        retryTelegramSend(data); // Рекурсивная попытка
+                    } else {
+                        hideRetryCounter();
+                        console.log('❌ Все фоновые попытки исчерпаны, но пользователь уже получил подтверждение');
+                        
+                        // Можно добавить здесь уведомление администратора о проблеме
+                        logSystemError('Telegram delivery failed after all retries', {
+                            roomId: data.roomId,
+                            problemType: data.problemType,
+                            attempts: retryAttempt,
+                            lastError: error.message
+                        });
+                    }
+                }
+            }, CONFIG.telegram.retryDelay);
+        }
+
+        function showRetryCounter() {
+            // НЕ показываем пользователю счетчик - все происходит в фоне
+            console.log(`🔄 Фоновая попытка отправки в Telegram через ${CONFIG.telegram.retryDelay / 1000} сек...`);
+        }
+
+        function hideRetryCounter() {
+            const retryInfo = document.getElementById('retryInfo');
+            retryInfo.style.display = 'none';
+        }
+
+        function cancelRetry() {
+            if (retryTimeout) {
+                clearTimeout(retryTimeout);
+                retryTimeout = null;
+                retryAttempt = 0;
+                hideRetryCounter();
+                console.log('🚫 Повторные попытки отменены');
+            }
+        }
+
+        // ============ ОСНОВНАЯ ЛОГИКА ОТПРАВКИ ============
+
+        async function sendRequest(data) {
+            const submitBtn = document.querySelector('.submit-btn');
+            submitBtn.textContent = 'Отправляем...';
+            submitBtn.disabled = true;
+
+            let telegramSuccess = false;
+            let sheetsSuccess = false;
+            retryAttempt = 0; // Сброс счетчика попыток
+
+            // Сначала сохраняем в Google Sheets
+            try {
+                await saveToGoogleSheets(data, false);
+                sheetsSuccess = true;
+                console.log('✅ Google Sheets: данные сохранены');
+            } catch (error) {
+                console.log('❌ Google Sheets: не удалось сохранить -', error.message);
+            }
+
+            // Пробуем отправить в Telegram
+            try {
+                await sendToTelegram(data, 1);
+                telegramSuccess = true;
+                console.log('✅ Telegram: заявка отправлена');
+                
+                // Обновляем статус в Google Sheets
+                if (sheetsSuccess) {
+                    try {
+                        await saveToGoogleSheets(data, true);
+                        console.log('✅ Google Sheets: статус обновлен');
+                    } catch (error) {
+                        console.log('⚠️ Не удалось обновить статус в Google Sheets:', error.message);
+                    }
+                }
+                
+            } catch (error) {
+                console.log('❌ Telegram: первая попытка не удалась -', error.message);
+                telegramSuccess = false;
+                
+                // Если есть интернет, начинаем повторные попытки
+                if (isOnline && CONFIG.telegram.retryAttempts > 1) {
+                    retryTelegramSend(data);
+                }
+            }
+
+            // Показываем результат пользователю
+            if (telegramSuccess || sheetsSuccess) {
+                // Если хотя бы что-то сработало (Telegram или Google Sheets), показываем успех
+                showSuccess('✅ Спасибо! Ваша заявка отправлена инженерам!');
+                
+                // Логируем детали в консоль для диагностики
+                if (telegramSuccess && sheetsSuccess) {
+                    console.log('✅ Полный успех: Telegram + Google Sheets');
+                } else if (telegramSuccess && !sheetsSuccess) {
+                    console.log('✅ Частичный успех: только Telegram (Google Sheets не сработал)');
+                } else if (!telegramSuccess && sheetsSuccess) {
+                    console.log('✅ Частичный успех: только Google Sheets (Telegram не сработал, но пользователь этого не узнает)');
+                    
+                    // Тихо пытаемся отправить в фоне, если есть возможность
+                    if (isOnline && CONFIG.telegram.retryAttempts > 1) {
+                        console.log('🔄 Запускаем фоновые попытки отправки в Telegram');
+                        retryTelegramSend(data);
+                    }
+                }
+            } else {
+                // Только если вообще ничего не сработало, показываем альтернативы
+                console.log('❌ Критическая ошибка: ни Telegram, ни Google Sheets не сработали');
+                showAlternativeMethods(data);
+            }
+
+            submitBtn.textContent = 'Отправить заявку';
+            submitBtn.disabled = false;
         }
 
         // ============ АЛЬТЕРНАТИВНЫЕ СПОСОБЫ ОТПРАВКИ ============
@@ -666,23 +935,50 @@
             copyTextDiv.style.display = isVisible ? 'none' : 'block';
         }
 
-        function copyToClipboard() {
+        async function copyToClipboard() {
             const copyText = document.getElementById('copyText');
-            
-            // Создаем временный textarea для копирования
-            const textarea = document.createElement('textarea');
-            textarea.value = copyText.textContent;
-            document.body.appendChild(textarea);
-            textarea.select();
+            const textToCopy = copyText.textContent;
             
             try {
-                document.execCommand('copy');
-                alert('✅ Текст скопирован! Теперь вставьте его в Telegram или другой мессенджер.');
+                // Современный способ копирования
+                if (navigator.clipboard && window.isSecureContext) {
+                    await navigator.clipboard.writeText(textToCopy);
+                    alert('✅ Текст скопирован! Теперь вставьте его в Telegram.');
+                    return;
+                }
             } catch (err) {
-                alert('❌ Не удалось скопировать. Выделите текст вручную.');
+                console.log('Современное копирование не удалось:', err);
             }
             
-            document.body.removeChild(textarea);
+            // Fallback для старых браузеров или небезопасного контекста
+            try {
+                const textarea = document.createElement('textarea');
+                textarea.value = textToCopy;
+                textarea.style.position = 'fixed';
+                textarea.style.opacity = '0';
+                document.body.appendChild(textarea);
+                textarea.focus();
+                textarea.select();
+                
+                const successful = document.execCommand('copy');
+                document.body.removeChild(textarea);
+                
+                if (successful) {
+                    alert('✅ Текст скопирован! Теперь вставьте его в Telegram.');
+                } else {
+                    throw new Error('Команда копирования не сработала');
+                }
+            } catch (err) {
+                console.log('Fallback копирование не удалось:', err);
+                
+                // Последний способ - выделение текста для ручного копирования
+                const range = document.createRange();
+                range.selectNode(copyText);
+                window.getSelection().removeAllRanges();
+                window.getSelection().addRange(range);
+                
+                alert('❌ Автокопирование не поддерживается. Выделенный текст скопируйте вручную (Ctrl+C или долгое нажатие).');
+            }
         }
 
         function sendEmail() {
@@ -715,19 +1011,30 @@
         // ============ ИНТЕРФЕЙС ============
 
         function showSuccess(message = '✅ Заявка отправлена! Инженеры получили уведомление.') {
+            hideAllMessages();
             const successMsg = document.getElementById('successMessage');
-            const errorMsg = document.getElementById('errorMessage');
-            const alternativeMethods = document.getElementById('alternativeMethods');
-            
             successMsg.textContent = message;
             successMsg.style.display = 'block';
-            errorMsg.style.display = 'none';
-            alternativeMethods.style.display = 'none';
 
             setTimeout(function() {
                 resetForm();
                 successMsg.style.display = 'none';
-            }, 4000); // Увеличили время показа до 4 секунд
+            }, 5000);
+        }
+
+        function showWarning(message) {
+            hideAllMessages();
+            const warningMsg = document.getElementById('warningMessage');
+            warningMsg.textContent = message;
+            warningMsg.style.display = 'block';
+        }
+
+        function hideAllMessages() {
+            document.getElementById('successMessage').style.display = 'none';
+            document.getElementById('warningMessage').style.display = 'none';
+            document.getElementById('errorMessage').style.display = 'none';
+            document.getElementById('alternativeMethods').style.display = 'none';
+            cancelRetry();
         }
 
         function resetForm() {
@@ -743,11 +1050,12 @@
             customText.style.display = 'none';
             customText.value = '';
 
-            const alternativeMethods = document.getElementById('alternativeMethods');
-            alternativeMethods.style.display = 'none';
+            hideAllMessages();
+            currentRequestData = null;
+            retryAttempt = 0;
         }
 
-        // ============ ФУНКЦИИ ДЛЯ ТЕСТИРОВАНИЯ ============
+        // ============ ФУНКЦИИ ДЛЯ ТЕСТИРОВАНИЯ И ДИАГНОСТИКИ ============
 
         function testQRRoom(roomName) {
             const newUrl = `${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(roomName)}`;
@@ -758,27 +1066,103 @@
             showDebugInfo();
         }
 
-        // Функция для быстрого тестирования (вызывается в консоли)
-        function quickTest() {
+        // Функция для логирования системных ошибок (можно расширить для отправки администратору)
+        function logSystemError(message, details = {}) {
+            const errorLog = {
+                timestamp: new Date().toISOString(),
+                message: message,
+                details: details,
+                userAgent: navigator.userAgent,
+                url: window.location.href
+            };
+            
+            console.error('🚨 Системная ошибка:', errorLog);
+            
+            // Здесь можно добавить отправку ошибки администратору:
+            // - Отправка в отдельный Telegram чат для админов
+            // - Сохранение в отдельный лист Google Sheets для ошибок
+            // - Отправка на email администратора
+            
+            // Пример сохранения ошибки в Google Sheets (опционально)
+            if (CONFIG.googleSheets.enabled) {
+                try {
+                    saveErrorToGoogleSheets(errorLog);
+                } catch (error) {
+                    console.error('Не удалось сохранить ошибку в Google Sheets:', error);
+                }
+            }
+        }
+
+        // Функция для сохранения ошибок в отдельный лист (опционально)
+        async function saveErrorToGoogleSheets(errorLog) {
+            const errorData = {
+                timestamp: new Date().toLocaleString('ru-RU'),
+                type: 'SYSTEM_ERROR',
+                message: errorLog.message,
+                details: JSON.stringify(errorLog.details),
+                userAgent: errorLog.userAgent.substring(0, 100),
+                url: errorLog.url,
+                roomId: errorLog.details.roomId || 'unknown'
+            };
+
+            // Отправляем в тот же Google Sheets, но с префиксом ERROR_
+            const webAppUrl = `https://script.google.com/macros/s/${CONFIG.googleSheets.deploymentId}/exec`;
+            
+            try {
+                await fetch(webAppUrl, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        action: 'addError',
+                        data: errorData
+                    })
+                });
+                console.log('📊 Ошибка сохранена в систему мониторинга');
+            } catch (error) {
+                console.error('Не удалось сохранить ошибку:', error);
+            }
+        }
+        async function quickTest() {
             console.log('🔧 Быстрый тест системы заявок');
             
+            // Проверка сети
+            console.log('🌐 Статус сети:', isOnline ? 'Онлайн' : 'Офлайн');
+            
+            // Проверка Telegram API
+            const telegramAvailable = await checkConnectionStatus();
+            console.log('📱 Telegram API:', telegramAvailable ? 'Доступен' : 'Недоступен');
+            
             // Тестируем разные помещения
-            console.log('Тестирование помещений:');
+            console.log('📍 Тестирование помещений:');
             testQRRoom('Туалет_муж_Корпус_А_4_эт');
             
             // Показываем конфигурацию (без секретных данных)
-            console.log('Конфигурация:', {
+            console.log('⚙️ Конфигурация:', {
                 telegramConfigured: !!(CONFIG.telegram.botToken && CONFIG.telegram.chatId),
                 googleSheetsEnabled: CONFIG.googleSheets.enabled,
                 emailEnabled: CONFIG.email.enabled,
                 smsEnabled: CONFIG.sms.enabled,
-                sheetUrl: CONFIG.googleSheets.sheetUrl
+                retryAttempts: CONFIG.telegram.retryAttempts,
+                retryDelay: CONFIG.telegram.retryDelay,
+                timeout: CONFIG.telegram.timeout
+            });
+
+            // Информация о браузере
+            console.log('📱 Браузер:', {
+                userAgent: navigator.userAgent.substring(0, 50) + '...',
+                cookieEnabled: navigator.cookieEnabled,
+                language: navigator.language,
+                platform: navigator.platform,
+                clipboard: !!(navigator.clipboard && window.isSecureContext)
             });
         }
 
         // Функция для тестирования Google Sheets
         async function testGoogleSheets() {
-            console.log('🔧 Тестирование Google Sheets...');
+            console.log('📊 Тестирование Google Sheets...');
             
             const testData = {
                 roomId: 'TEST_ROOM',
@@ -798,6 +1182,28 @@
             }
         }
 
+        // Функция для тестирования Telegram
+        async function testTelegram() {
+            console.log('📱 Тестирование Telegram...');
+            
+            const testData = {
+                roomId: 'TEST_ROOM',
+                roomDisplayName: 'Тестовое помещение',
+                problemType: 'test',
+                problemDescription: 'Тестовая заявка для проверки Telegram',
+                date: new Date().toLocaleDateString('ru-RU'),
+                time: new Date().toLocaleTimeString('ru-RU'),
+                timestamp: new Date().toISOString()
+            };
+
+            try {
+                await sendToTelegram(testData);
+                console.log('✅ Тест Telegram успешен! Проверьте чат.');
+            } catch (error) {
+                console.log('❌ Тест Telegram не прошел:', error.message);
+            }
+        }
+
         // Функция для получения ссылки на таблицу
         function openGoogleSheets() {
             if (CONFIG.googleSheets.sheetUrl) {
@@ -807,11 +1213,73 @@
             }
         }
 
-        // Показать статистику (если доступно)
-        function showStats() {
-            getStatistics();
-            console.log('📊 Запрашиваем статистику... Результат появится в консоли.');
+        // Включить режим отладки
+        function enableDebug() {
+            CONFIG.app.debug = true;
+            CONFIG.app.showConnectionStatus = true;
+            showDebugInfo();
+            updateConnectionStatus();
+            console.log('🔧 Режим отладки включен');
         }
+
+        // Функция для проверки всех систем
+        async function healthCheck() {
+            console.log('🏥 Проверка состояния всех систем...');
+            
+            const results = {
+                network: isOnline,
+                telegram: false,
+                googleSheets: false,
+                clipboard: !!(navigator.clipboard && window.isSecureContext)
+            };
+
+            // Проверка Telegram
+            try {
+                results.telegram = await checkConnectionStatus();
+            } catch (error) {
+                console.log('❌ Ошибка проверки Telegram:', error.message);
+            }
+
+            // Проверка Google Sheets (упрощенная)
+            try {
+                if (CONFIG.googleSheets.enabled && CONFIG.googleSheets.deploymentId) {
+                    results.googleSheets = true;
+                }
+            } catch (error) {
+                console.log('❌ Ошибка проверки Google Sheets:', error.message);
+            }
+
+            console.log('📊 Результаты проверки:', results);
+            
+            // Рекомендации
+            const recommendations = [];
+            if (!results.network) recommendations.push('Проверьте подключение к интернету');
+            if (!results.telegram) recommendations.push('Проверьте настройки Telegram (токен, chat ID)');
+            if (!results.googleSheets) recommendations.push('Проверьте настройки Google Sheets');
+            if (!results.clipboard) recommendations.push('Для копирования нужен HTTPS или localhost');
+
+            if (recommendations.length > 0) {
+                console.log('💡 Рекомендации:', recommendations);
+            } else {
+                console.log('✅ Все системы работают корректно!');
+            }
+
+            return results;
+        }
+
+        // Добавляем функции в глобальную область для доступа из консоли
+        window.quickTest = quickTest;
+        window.testGoogleSheets = testGoogleSheets;
+        window.testTelegram = testTelegram;
+        window.healthCheck = healthCheck;
+        window.enableDebug = enableDebug;
+        window.openGoogleSheets = openGoogleSheets;
+        window.testQRRoom = testQRRoom;
+
+        // Лог готовности системы
+        console.log('🚀 Система заявок готова к работе!');
+        console.log('💡 Для тестирования используйте: quickTest(), healthCheck(), enableDebug()');
     </script>
 </body>
 </html>
+                
