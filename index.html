@@ -428,6 +428,7 @@
         let retryTimeout = null;
         let retryAttempt = 0;
         let isOnline = navigator.onLine;
+        let telegramDelivered = false; // ✅ НОВАЯ ПЕРЕМЕННАЯ для отслеживания доставки
 
         // ============ ИНИЦИАЛИЗАЦИЯ ============
 
@@ -483,8 +484,8 @@
                 updateConnectionStatus();
                 console.log('🌐 Сеть восстановлена');
                 
-                // Если есть сохраненная заявка, пробуем отправить
-                if (currentRequestData && !document.getElementById('successMessage').style.display !== 'none') {
+                // Если есть сохраненная заявка И Telegram не доставлен, пробуем отправить
+                if (currentRequestData && !telegramDelivered) {
                     console.log('🔄 Пробуем отправить сохраненную заявку');
                     retryTelegramSend(currentRequestData);
                 }
@@ -601,6 +602,10 @@
                 timestamp: new Date().toISOString()
             };
 
+            // ✅ СБРОС статуса доставки для новой заявки
+            telegramDelivered = false;
+            retryAttempt = 0;
+
             await sendRequest(currentRequestData);
         });
 
@@ -619,21 +624,21 @@
                 problemDescription: data.problemDescription,
                 status: 'Новая',
                 telegramSent: telegramSent ? 'Да' : 'Нет',
-                userAgent: navigator.userAgent.substring(0, 100), // Ограничиваем длину
-                telegramFallbackSent: 'Нет', // Изначально дубль не отправлен
+                userAgent: navigator.userAgent.substring(0, 100),
+                telegramFallbackSent: 'Нет',
                 
                 // Дополнительные данные для анализа
                 roomId: data.roomId,
                 date: data.date,
                 time: data.time,
                 timestampISO: data.timestamp,
-                sourceUrl: window.location.href.substring(0, 200), // Ограничиваем длину
+                sourceUrl: window.location.href.substring(0, 200),
                 networkStatus: isOnline ? 'Online' : 'Offline',
                 retryAttempt: retryAttempt,
                 
-                // Данные для отправки дубля через Google Sheets
-                needsTelegramFallback: needsTelegramFallback,
-                telegramFallbackConfig: needsTelegramFallback ? {
+                // ✅ ОБНОВЛЕННАЯ ЛОГИКА: fallback только если Telegram НЕ доставлен
+                needsTelegramFallback: needsTelegramFallback && !telegramSent,
+                telegramFallbackConfig: (needsTelegramFallback && !telegramSent) ? {
                     botToken: CONFIG.googleSheets.telegramFallback.botToken,
                     chatId: CONFIG.googleSheets.telegramFallback.chatId,
                     delaySeconds: CONFIG.googleSheets.telegramFallback.delaySeconds
@@ -644,11 +649,11 @@
             
             try {
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 секунд timeout
+                const timeoutId = setTimeout(() => controller.abort(), 10000);
                 
                 const response = await fetch(webAppUrl, {
                     method: 'POST',
-                    mode: 'no-cors', // Важно для Google Apps Script
+                    mode: 'no-cors',
                     headers: {
                         'Content-Type': 'application/json',
                     },
@@ -660,7 +665,9 @@
                 });
 
                 clearTimeout(timeoutId);
-                console.log('✅ Данные отправлены в Google Sheets' + (needsTelegramFallback ? ' (запрошен дубль в Telegram)' : ''));
+                console.log('✅ Данные отправлены в Google Sheets' + 
+                    ((needsTelegramFallback && !telegramSent) ? ' (запрошен дубль в Telegram)' : 
+                     (telegramSent ? ' (Telegram доставлен, дубль НЕ нужен)' : '')));
                 return { success: true };
                 
             } catch (error) {
@@ -746,6 +753,12 @@ ${attempt > 1 ? `🔄 Попытка: ${attempt}` : ''}
         // ============ ПОВТОРНЫЕ ПОПЫТКИ ============
 
         function retryTelegramSend(data) {
+            // ✅ ИСПРАВЛЕНИЕ: проверяем, не доставлен ли уже Telegram
+            if (telegramDelivered) {
+                console.log('✅ Telegram уже доставлен, повторная отправка не нужна');
+                return;
+            }
+
             if (retryAttempt >= CONFIG.telegram.retryAttempts) {
                 console.log(`❌ Исчерпаны попытки отправки (${retryAttempt})`);
                 return;
@@ -754,18 +767,17 @@ ${attempt > 1 ? `🔄 Попытка: ${attempt}` : ''}
             retryAttempt++;
             console.log(`🔄 Попытка отправки ${retryAttempt}/${CONFIG.telegram.retryAttempts}`);
 
-            showRetryCounter();
-
             retryTimeout = setTimeout(async () => {
                 try {
                     await sendToTelegram(data, retryAttempt);
+                    
+                    // ✅ ВАЖНО: помечаем Telegram как доставленный
+                    telegramDelivered = true;
                     console.log('✅ Telegram: заявка отправлена при фоновой попытке');
                     
                     hideRetryCounter();
-                    // НЕ показываем повторное сообщение пользователю - он уже получил подтверждение
-                    console.log('✅ Фоновая отправка в Telegram успешна (пользователь уже уведомлен)');
                     
-                    // Обновляем в Google Sheets (без запроса дубля, т.к. фоновая отправка успешна)
+                    // Обновляем статус в Google Sheets (БЕЗ запроса дубля)
                     try {
                         await saveToGoogleSheets(data, true, false);
                         console.log('✅ Google Sheets: статус обновлен после фоновой отправки');
@@ -776,7 +788,7 @@ ${attempt > 1 ? `🔄 Попытка: ${attempt}` : ''}
                 } catch (error) {
                     console.log(`❌ Фоновая попытка ${retryAttempt} не удалась:`, error.message);
                     
-                    if (retryAttempt < CONFIG.telegram.retryAttempts && isOnline) {
+                    if (retryAttempt < CONFIG.telegram.retryAttempts && isOnline && !telegramDelivered) {
                         retryTelegramSend(data); // Рекурсивная попытка
                     } else {
                         hideRetryCounter();
@@ -808,7 +820,6 @@ ${attempt > 1 ? `🔄 Попытка: ${attempt}` : ''}
             if (retryTimeout) {
                 clearTimeout(retryTimeout);
                 retryTimeout = null;
-                retryAttempt = 0;
                 hideRetryCounter();
                 console.log('🚫 Повторные попытки отменены');
             }
@@ -823,65 +834,52 @@ ${attempt > 1 ? `🔄 Попытка: ${attempt}` : ''}
 
             let telegramSuccess = false;
             let sheetsSuccess = false;
-            retryAttempt = 0; // Сброс счетчика попыток
 
-            // Сначала сохраняем в Google Sheets
-            try {
-                // Определяем, нужен ли дубль из Google Sheets
-                const needsFallback = CONFIG.googleSheets.telegramFallback.enabled && !telegramSuccess;
-                
-                await saveToGoogleSheets(data, telegramSuccess, needsFallback);
-                sheetsSuccess = true;
-                console.log('✅ Google Sheets: данные сохранены' + (needsFallback ? ' (запрошен Telegram дубль)' : ''));
-            } catch (error) {
-                console.log('❌ Google Sheets: не удалось сохранить -', error.message);
-            }
-
-            // Пробуем отправить в Telegram
+            // ✅ ИЗМЕНЕНА ЛОГИКА: сначала пытаемся отправить в Telegram
             try {
                 await sendToTelegram(data, 1);
                 telegramSuccess = true;
-                console.log('✅ Telegram: заявка отправлена');
-                
-                // Обновляем статус в Google Sheets (без запроса дубля)
-                if (sheetsSuccess) {
-                    try {
-                        await saveToGoogleSheets(data, true, false);
-                        console.log('✅ Google Sheets: статус обновлен');
-                    } catch (error) {
-                        console.log('⚠️ Не удалось обновить статус в Google Sheets:', error.message);
-                    }
-                }
+                telegramDelivered = true; // ✅ Помечаем как доставленный
+                console.log('✅ Telegram: заявка отправлена с первого раза');
                 
             } catch (error) {
                 console.log('❌ Telegram: первая попытка не удалась -', error.message);
                 telegramSuccess = false;
+                telegramDelivered = false; // ✅ НЕ доставлен
                 
-                // Если есть интернет, начинаем повторные попытки
+                // Если есть интернет, начинаем повторные попытки в фоне
                 if (isOnline && CONFIG.telegram.retryAttempts > 1) {
-                    retryTelegramSend(data);
+                    setTimeout(() => retryTelegramSend(data), CONFIG.telegram.retryDelay);
+                    console.log('🔄 Запланированы фоновые попытки отправки в Telegram');
                 }
+            }
+
+            // Сохраняем в Google Sheets с правильной логикой fallback
+            try {
+                // ✅ КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: fallback нужен только если Telegram НЕ доставлен
+                const needsFallback = CONFIG.googleSheets.telegramFallback.enabled && !telegramSuccess;
+                
+                await saveToGoogleSheets(data, telegramSuccess, needsFallback);
+                sheetsSuccess = true;
+                console.log('✅ Google Sheets: данные сохранены' + 
+                    (needsFallback ? ' (запрошен Telegram дубль, т.к. основное сообщение не доставлено)' : 
+                     (telegramSuccess ? ' (Telegram доставлен, дубль НЕ нужен)' : '')));
+                     
+            } catch (error) {
+                console.log('❌ Google Sheets: не удалось сохранить -', error.message);
             }
 
             // Показываем результат пользователю
             if (telegramSuccess || sheetsSuccess) {
-                // Если хотя бы что-то сработало (Telegram или Google Sheets), показываем успех
-                showSuccess('✅ Спасибо! Ваша заявка отправлена инженерам!');
-                
-                // Логируем детали в консоль для диагностики
-                if (telegramSuccess && sheetsSuccess) {
-                    console.log('✅ Полный успех: Telegram + Google Sheets');
-                } else if (telegramSuccess && !sheetsSuccess) {
-                    console.log('✅ Частичный успех: только Telegram (Google Sheets не сработал)');
-                } else if (!telegramSuccess && sheetsSuccess) {
-                    console.log('✅ Частичный успех: только Google Sheets (Telegram не сработал, но пользователь этого не узнает)');
-                    
-                    // Тихо пытаемся отправить в фоне, если есть возможность
-                    if (isOnline && CONFIG.telegram.retryAttempts > 1) {
-                        console.log('🔄 Запускаем фоновые попытки отправки в Telegram');
-                        retryTelegramSend(data);
-                    }
+                // Если хотя бы что-то сработало, показываем успех
+                if (telegramSuccess) {
+                    showSuccess('✅ Спасибо! Ваша заявка отправлена инженерам!');
+                    console.log('✅ Полный успех: сообщение доставлено в Telegram');
+                } else {
+                    showSuccess('✅ Спасибо! Ваша заявка принята и будет доставлена инженерам!');
+                    console.log('✅ Частичный успех: заявка сохранена, будет отправлен дубль из Google Sheets');
                 }
+                
             } else {
                 // Только если вообще ничего не сработало, показываем альтернативы
                 console.log('❌ Критическая ошибка: ни Telegram, ни Google Sheets не сработали');
@@ -890,6 +888,18 @@ ${attempt > 1 ? `🔄 Попытка: ${attempt}` : ''}
 
             submitBtn.textContent = 'Отправить заявку';
             submitBtn.disabled = false;
+        }
+
+        // ============ ФУНКЦИЯ ДЛЯ ОБНОВЛЕНИЯ СТАТУСА ПОСЛЕ УСПЕШНОЙ ФОНОВОЙ ОТПРАВКИ ============
+        
+        async function updateGoogleSheetsAfterTelegramSuccess(data) {
+            try {
+                // Отправляем обновленные данные, указывая что Telegram доставлен
+                await saveToGoogleSheets(data, true, false); // telegram = true, fallback = false
+                console.log('✅ Google Sheets: статус обновлен - Telegram доставлен');
+            } catch (error) {
+                console.log('⚠️ Не удалось обновить статус в Google Sheets:', error.message);
+            }
         }
 
         // ============ АЛЬТЕРНАТИВНЫЕ СПОСОБЫ ОТПРАВКИ ============
@@ -1075,6 +1085,7 @@ ${attempt > 1 ? `🔄 Попытка: ${attempt}` : ''}
             hideAllMessages();
             currentRequestData = null;
             retryAttempt = 0;
+            telegramDelivered = false; // ✅ СБРОС статуса доставки
         }
 
         // ============ ФУНКЦИИ ДЛЯ ТЕСТИРОВАНИЯ И ДИАГНОСТИКИ ============
@@ -1147,6 +1158,9 @@ ${attempt > 1 ? `🔄 Попытка: ${attempt}` : ''}
                 console.error('Не удалось сохранить ошибку:', error);
             }
         }
+
+        // ============ ТЕСТОВЫЕ ФУНКЦИИ ============
+
         async function quickTest() {
             console.log('🔧 Быстрый тест системы заявок');
             
@@ -1169,7 +1183,8 @@ ${attempt > 1 ? `🔄 Попытка: ${attempt}` : ''}
                 smsEnabled: CONFIG.sms.enabled,
                 retryAttempts: CONFIG.telegram.retryAttempts,
                 retryDelay: CONFIG.telegram.retryDelay,
-                timeout: CONFIG.telegram.timeout
+                timeout: CONFIG.telegram.timeout,
+                telegramDeliveryStatus: telegramDelivered
             });
 
             // Информация о браузере
@@ -1198,11 +1213,37 @@ ${attempt > 1 ? `🔄 Попытка: ${attempt}` : ''}
 
             try {
                 // Имитируем ситуацию, когда Telegram не сработал, но нужен fallback
+                telegramDelivered = false; // ✅ Имитируем неуспешную доставку
                 await saveToGoogleSheets(testData, false, true);
                 console.log('✅ Тест с Fallback запущен! Дубль должен появиться в Telegram через 30 секунд.');
                 console.log('📱 Проверьте чат Telegram и Google Sheets через 1-2 минуты.');
             } catch (error) {
                 console.log('❌ Тест с Fallback не прошел:', error.message);
+            }
+        }
+
+        // Функция для тестирования успешной доставки (НЕ должно быть дубля)
+        async function testTelegramSuccess() {
+            console.log('✅📊 Тестирование успешной доставки Telegram (дубль НЕ должен отправиться)...');
+            
+            const testData = {
+                roomId: 'TEST_SUCCESS_ROOM',
+                roomDisplayName: 'Тестовое помещение (Успех)',
+                problemType: 'test_success',
+                problemDescription: 'Тестовая заявка для проверки отсутствия дублей при успешной доставке',
+                date: new Date().toLocaleDateString('ru-RU'),
+                time: new Date().toLocaleTimeString('ru-RU'),
+                timestamp: new Date().toISOString()
+            };
+
+            try {
+                // Имитируем ситуацию, когда Telegram успешно сработал
+                telegramDelivered = true; // ✅ Имитируем успешную доставку
+                await saveToGoogleSheets(testData, true, false); // telegram=true, fallback=false
+                console.log('✅ Тест успешной доставки запущен! Дубль НЕ должен появиться в Telegram.');
+                console.log('📊 Проверьте Google Sheets - должна быть запись с "Telegram отправлен: Да"');
+            } catch (error) {
+                console.log('❌ Тест успешной доставки не прошел:', error.message);
             }
         }
 
@@ -1222,8 +1263,10 @@ ${attempt > 1 ? `🔄 Попытка: ${attempt}` : ''}
 
             try {
                 await sendToTelegram(testData);
+                telegramDelivered = true;
                 console.log('✅ Тест Telegram успешен! Проверьте чат.');
             } catch (error) {
+                telegramDelivered = false;
                 console.log('❌ Тест Telegram не прошел:', error.message);
             }
         }
@@ -1254,7 +1297,8 @@ ${attempt > 1 ? `🔄 Попытка: ${attempt}` : ''}
                 network: isOnline,
                 telegram: false,
                 googleSheets: false,
-                clipboard: !!(navigator.clipboard && window.isSecureContext)
+                clipboard: !!(navigator.clipboard && window.isSecureContext),
+                telegramDeliveryStatus: telegramDelivered
             };
 
             // Проверка Telegram
@@ -1294,6 +1338,7 @@ ${attempt > 1 ? `🔄 Попытка: ${attempt}` : ''}
         // Добавляем функции в глобальную область для доступа из консоли
         window.quickTest = quickTest;
         window.testGoogleSheetsWithFallback = testGoogleSheetsWithFallback;
+        window.testTelegramSuccess = testTelegramSuccess;
         window.testTelegram = testTelegram;
         window.healthCheck = healthCheck;
         window.enableDebug = enableDebug;
@@ -1301,20 +1346,21 @@ ${attempt > 1 ? `🔄 Попытка: ${attempt}` : ''}
         window.testQRRoom = testQRRoom;
 
         // Лог готовности системы
-        console.log('🚀 Система заявок с Telegram Fallback готова к работе!');
+        console.log('🚀 ИСПРАВЛЕННАЯ система заявок с Telegram Fallback готова к работе!');
+        console.log('');
+        console.log('✅ ИСПРАВЛЕНИЯ:');
+        console.log('   • Дубли отправляются ТОЛЬКО если основное сообщение НЕ доставлено');
+        console.log('   • Добавлена переменная telegramDelivered для точного отслеживания');
+        console.log('   • Улучшена логика определения необходимости fallback');
+        console.log('   • Добавлен тест успешной доставки (без дубля)');
+        console.log('');
         console.log('💡 Для тестирования используйте:');
         console.log('   quickTest() - быстрая проверка всех систем');
         console.log('   healthCheck() - полная диагностика');
         console.log('   testGoogleSheetsWithFallback() - тест дублирующих сообщений');
+        console.log('   testTelegramSuccess() - тест БЕЗ дублирующих сообщений');
         console.log('   testTelegram() - тест прямой отправки в Telegram');
         console.log('   enableDebug() - включить отладочный режим');
-        console.log('');
-        console.log('🔄 Новая возможность: если Telegram не доставляет сообщение,');
-        console.log('   Google Sheets автоматически отправит дубль через 30 секунд!');
     </script>
 </body>
 </html>
-    </script>
-</body>
-</html>
-                
